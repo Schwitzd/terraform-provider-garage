@@ -153,9 +153,10 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 	p := m.(*garageProvider)
 	var diags diag.Diagnostics
 
-	bucketInfo, _, err := p.client.BucketApi.CreateBucket(updateContext(ctx, p)).CreateBucketRequest(garage.CreateBucketRequest{}).Execute()
+	bucketInfo, http, err := p.client.BucketApi.CreateBucket(updateContext(ctx, p)).CreateBucketRequest(garage.CreateBucketRequest{}).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	d.SetId(*bucketInfo.Id)
@@ -171,9 +172,10 @@ func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface
 
 	bucketID := d.Id()
 
-	bucketInfo, _, err := p.client.BucketApi.GetBucketInfo(updateContext(ctx, p), bucketID).Execute()
+	bucketInfo, http, err := p.client.BucketApi.GetBucketInfo(updateContext(ctx, p)).Id(bucketID).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	for key, value := range flattenBucketInfo(bucketInfo).(map[string]interface{}) {
@@ -207,16 +209,16 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 		webConfigErrorDoc = &webConfigErrorDocVal
 	}
 
-	var quotaMaxSize *int32
+	var quotaMaxSize *int64
 	quotaMaxSize = nil
-	var quotaMaxObjects *int32
+	var quotaMaxObjects *int64
 	quotaMaxObjects = nil
 	if quotaMaxSizeVal, ok := d.GetOk("quota_max_size"); ok {
-		quotaMaxSizeVal := int32(quotaMaxSizeVal.(int))
+		quotaMaxSizeVal := int64(quotaMaxSizeVal.(int))
 		quotaMaxSize = &quotaMaxSizeVal
 	}
 	if quotaMaxObjectsVal, ok := d.GetOk("quota_max_objects"); ok {
-		quotaMaxObjectsVal := int32(quotaMaxObjectsVal.(int))
+		quotaMaxObjectsVal := int64(quotaMaxObjectsVal.(int))
 		quotaMaxObjects = &quotaMaxObjectsVal
 	}
 
@@ -227,14 +229,15 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 			ErrorDocument: webConfigErrorDoc,
 		},
 		Quotas: &garage.UpdateBucketRequestQuotas{
-			MaxSize:    *garage.NewNullableInt32(quotaMaxSize),
-			MaxObjects: *garage.NewNullableInt32(quotaMaxObjects),
+			MaxSize:    *garage.NewNullableInt64(quotaMaxSize),
+			MaxObjects: *garage.NewNullableInt64(quotaMaxObjects),
 		},
 	}
 
-	_, _, err := p.client.BucketApi.UpdateBucket(updateContext(ctx, p), d.Id()).UpdateBucketRequest(updateBucketRequest).Execute()
+	_, http, err := p.client.BucketApi.UpdateBucket(updateContext(ctx, p)).Id(d.Id()).UpdateBucketRequest(updateBucketRequest).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	diags = resourceBucketRead(ctx, d, m)
@@ -246,9 +249,10 @@ func resourceBucketDelete(ctx context.Context, d *schema.ResourceData, m interfa
 	p := m.(*garageProvider)
 	var diags diag.Diagnostics
 
-	_, err := p.client.BucketApi.DeleteBucket(updateContext(ctx, p), d.Id()).Execute()
+	http, err := p.client.BucketApi.DeleteBucket(updateContext(ctx, p)).Id(d.Id()).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	return diags

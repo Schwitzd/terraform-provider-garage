@@ -95,18 +95,20 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 	var keyInfo *garage.KeyInfo
 
 	if accessKeyID != "" || secretAccessKey != "" {
-		importKeyRequest := *garage.NewImportKeyRequest(*name, accessKeyID, secretAccessKey)
-		resp, _, err := p.client.KeyApi.ImportKey(updateContext(ctx, p)).ImportKeyRequest(importKeyRequest).Execute()
+		importKeyRequest := *garage.NewImportKeyRequest(*garage.NewNullableString(name), accessKeyID, secretAccessKey)
+		resp, http, err := p.client.KeyApi.ImportKey(updateContext(ctx, p)).ImportKeyRequest(importKeyRequest).Execute()
 		if err != nil {
-			return diag.FromErr(err)
+			diags = append(diags, CreateDiagnositc(err, http))
+			return diags
 		}
 		keyInfo = resp
 	} else {
 		addKeyRequest := *garage.NewAddKeyRequest()
-		addKeyRequest.Name = name
-		resp, _, err := p.client.KeyApi.AddKey(updateContext(ctx, p)).AddKeyRequest(addKeyRequest).Execute()
+		addKeyRequest.Name = *garage.NewNullableString(name)
+		resp, http, err := p.client.KeyApi.AddKey(updateContext(ctx, p)).AddKeyRequest(addKeyRequest).Execute()
 		if err != nil {
-			return diag.FromErr(err)
+			diags = append(diags, CreateDiagnositc(err, http))
+			return diags
 		}
 		keyInfo = resp
 	}
@@ -131,9 +133,10 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 			Deny:  &deny,
 		}
 
-		_, _, err := p.client.KeyApi.UpdateKey(updateContext(ctx, p), d.Id()).UpdateKeyRequest(updateKeyRequest).Execute()
+		_, http, err := p.client.KeyApi.UpdateKey(updateContext(ctx, p)).Id(d.Id()).UpdateKeyRequest(updateKeyRequest).Execute()
 		if err != nil {
-			return diag.FromErr(err)
+			diags = append(diags, CreateDiagnositc(err, http))
+			return diags
 		}
 	}
 
@@ -148,9 +151,10 @@ func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{})
 
 	accessKeyID := d.Id()
 
-	keyInfo, _, err := p.client.KeyApi.GetKey(updateContext(ctx, p), accessKeyID).Execute()
+	keyInfo, http, err := p.client.KeyApi.GetKey(updateContext(ctx, p)).Id(accessKeyID).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	for key, value := range flattenKeyInfo(keyInfo).(map[string]interface{}) {
@@ -199,9 +203,10 @@ func resourceKeyUpdate(ctx context.Context, d *schema.ResourceData, m interface{
 		Deny:  deny,
 	}
 
-	_, _, err := p.client.KeyApi.UpdateKey(updateContext(ctx, p), d.Id()).UpdateKeyRequest(updateKeyRequest).Execute()
+	_, http, err := p.client.KeyApi.UpdateKey(updateContext(ctx, p)).Id(d.Id()).UpdateKeyRequest(updateKeyRequest).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	diags = resourceKeyRead(ctx, d, m)
@@ -215,9 +220,10 @@ func resourceKeyDelete(ctx context.Context, d *schema.ResourceData, m interface{
 
 	accessKeyID := d.Id()
 
-	_, err := p.client.KeyApi.DeleteKey(updateContext(ctx, p), accessKeyID).Execute()
+	http, err := p.client.KeyApi.DeleteKey(updateContext(ctx, p)).Id(accessKeyID).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	return diags

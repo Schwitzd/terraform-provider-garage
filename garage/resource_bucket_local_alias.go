@@ -46,9 +46,10 @@ func resourceBucketLocalAliasCreate(ctx context.Context, d *schema.ResourceData,
 	accessKeyID := d.Get("access_key_id").(string)
 	alias := d.Get("alias").(string)
 
-	_, _, err := p.client.BucketApi.PutBucketLocalAlias(updateContext(ctx, p)).Id(bucketID).AccessKeyId(accessKeyID).Alias(alias).Execute()
+	_, http, err := p.client.BucketApi.PutBucketLocalAlias(updateContext(ctx, p)).Id(bucketID).AccessKeyId(accessKeyID).Alias(alias).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	d.SetId(fmt.Sprintf("%s/%s/%s", bucketID, accessKeyID, alias))
@@ -70,9 +71,10 @@ func resourceBucketLocalAliasDelete(ctx context.Context, d *schema.ResourceData,
 	accessKeyID := d.Get("access_key_id").(string)
 	alias := d.Get("alias").(string)
 
-	_, _, err := p.client.BucketApi.DeleteBucketLocalAlias(updateContext(ctx, p)).Id(bucketID).AccessKeyId(accessKeyID).Alias(alias).Execute()
+	_, http, err := p.client.BucketApi.DeleteBucketLocalAlias(updateContext(ctx, p)).Id(bucketID).AccessKeyId(accessKeyID).Alias(alias).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	return diags

@@ -79,13 +79,15 @@ func resourceBucketKeyCreateOrUpdate(ctx context.Context, d *schema.ResourceData
 		},
 	}
 
-	_, _, err := p.client.BucketApi.AllowBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(allowBucketKeyRequest).Execute()
+	_, http, err := p.client.BucketApi.AllowBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(allowBucketKeyRequest).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
-	_, _, err = p.client.BucketApi.DenyBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(denyBucketKeyRequest).Execute()
+	_, http, err = p.client.BucketApi.DenyBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(denyBucketKeyRequest).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	d.SetId(fmt.Sprintf("%s/%s", bucketID, accessKeyID))
@@ -116,9 +118,10 @@ func resourceBucketKeyDelete(ctx context.Context, d *schema.ResourceData, m inte
 		},
 	}
 
-	_, _, err := p.client.BucketApi.DenyBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(denyBucketKeyRequest).Execute()
+	_, http, err := p.client.BucketApi.DenyBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(denyBucketKeyRequest).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	return diags

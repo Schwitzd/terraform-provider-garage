@@ -40,9 +40,10 @@ func resourceBucketGlobalAliasCreate(ctx context.Context, d *schema.ResourceData
 	bucketID := d.Get("bucket_id").(string)
 	alias := d.Get("alias").(string)
 
-	_, _, err := p.client.BucketApi.PutBucketGlobalAlias(updateContext(ctx, p)).Id(bucketID).Alias(alias).Execute()
+	_, http, err := p.client.BucketApi.PutBucketGlobalAlias(updateContext(ctx, p)).Id(bucketID).Alias(alias).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	d.SetId(fmt.Sprintf("%s/%s", bucketID, alias))
@@ -63,9 +64,10 @@ func resourceBucketGlobalAliasDelete(ctx context.Context, d *schema.ResourceData
 	bucketID := d.Get("bucket_id").(string)
 	alias := d.Get("alias").(string)
 
-	_, _, err := p.client.BucketApi.DeleteBucketGlobalAlias(updateContext(ctx, p)).Id(bucketID).Alias(alias).Execute()
+	_, http, err := p.client.BucketApi.DeleteBucketGlobalAlias(updateContext(ctx, p)).Id(bucketID).Alias(alias).Execute()
 	if err != nil {
-		return diag.FromErr(err)
+		diags = append(diags, CreateDiagnositc(err, http))
+		return diags
 	}
 
 	return diags
