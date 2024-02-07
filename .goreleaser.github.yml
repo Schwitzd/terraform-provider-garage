@@ -42,7 +42,7 @@ signs:
       - "${artifact}"
 release:
   github:
-    owner: prologin
+    owner: JCapucho
     name: terraform-provider-garage
 changelog:
   skip: false
