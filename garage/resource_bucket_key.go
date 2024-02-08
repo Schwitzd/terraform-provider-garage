@@ -81,12 +81,12 @@ func resourceBucketKeyCreateOrUpdate(ctx context.Context, d *schema.ResourceData
 
 	_, http, err := p.client.BucketApi.AllowBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(allowBucketKeyRequest).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 	_, http, err = p.client.BucketApi.DenyBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(denyBucketKeyRequest).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 
@@ -120,7 +120,7 @@ func resourceBucketKeyDelete(ctx context.Context, d *schema.ResourceData, m inte
 
 	_, http, err := p.client.BucketApi.DenyBucketKey(updateContext(ctx, p)).AllowBucketKeyRequest(denyBucketKeyRequest).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 

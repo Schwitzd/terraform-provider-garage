@@ -7,17 +7,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 )
 
-type GarageAPIError struct {
+type garageAPIError struct {
 	Message string `json:"message"`
 }
 
-func CreateDiagnositc(err error, http *http.Response) diag.Diagnostic {
+func createDiagnositc(err error, http *http.Response) diag.Diagnostic {
 	diagnostic := diag.Diagnostic{
 		Severity: diag.Error,
 		Summary:  err.Error(),
 	}
 
-	apiError := new(GarageAPIError)
+	apiError := new(garageAPIError)
 
 	decodeErr := json.NewDecoder(http.Body).Decode(apiError)
 	if decodeErr == nil {

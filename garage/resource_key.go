@@ -98,7 +98,7 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 		importKeyRequest := *garage.NewImportKeyRequest(*garage.NewNullableString(name), accessKeyID, secretAccessKey)
 		resp, http, err := p.client.KeyApi.ImportKey(updateContext(ctx, p)).ImportKeyRequest(importKeyRequest).Execute()
 		if err != nil {
-			diags = append(diags, CreateDiagnositc(err, http))
+			diags = append(diags, createDiagnositc(err, http))
 			return diags
 		}
 		keyInfo = resp
@@ -107,7 +107,7 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 		addKeyRequest.Name = *garage.NewNullableString(name)
 		resp, http, err := p.client.KeyApi.AddKey(updateContext(ctx, p)).AddKeyRequest(addKeyRequest).Execute()
 		if err != nil {
-			diags = append(diags, CreateDiagnositc(err, http))
+			diags = append(diags, createDiagnositc(err, http))
 			return diags
 		}
 		keyInfo = resp
@@ -135,7 +135,7 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 
 		_, http, err := p.client.KeyApi.UpdateKey(updateContext(ctx, p)).Id(d.Id()).UpdateKeyRequest(updateKeyRequest).Execute()
 		if err != nil {
-			diags = append(diags, CreateDiagnositc(err, http))
+			diags = append(diags, createDiagnositc(err, http))
 			return diags
 		}
 	}
@@ -153,7 +153,7 @@ func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{})
 
 	keyInfo, http, err := p.client.KeyApi.GetKey(updateContext(ctx, p)).Id(accessKeyID).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 
@@ -205,7 +205,7 @@ func resourceKeyUpdate(ctx context.Context, d *schema.ResourceData, m interface{
 
 	_, http, err := p.client.KeyApi.UpdateKey(updateContext(ctx, p)).Id(d.Id()).UpdateKeyRequest(updateKeyRequest).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 
@@ -222,7 +222,7 @@ func resourceKeyDelete(ctx context.Context, d *schema.ResourceData, m interface{
 
 	http, err := p.client.KeyApi.DeleteKey(updateContext(ctx, p)).Id(accessKeyID).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 

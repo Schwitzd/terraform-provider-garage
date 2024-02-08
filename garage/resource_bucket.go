@@ -155,7 +155,7 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 
 	bucketInfo, http, err := p.client.BucketApi.CreateBucket(updateContext(ctx, p)).CreateBucketRequest(garage.CreateBucketRequest{}).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 
@@ -174,7 +174,7 @@ func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface
 
 	bucketInfo, http, err := p.client.BucketApi.GetBucketInfo(updateContext(ctx, p)).Id(bucketID).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 
@@ -236,7 +236,7 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 
 	_, http, err := p.client.BucketApi.UpdateBucket(updateContext(ctx, p)).Id(d.Id()).UpdateBucketRequest(updateBucketRequest).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 
@@ -251,7 +251,7 @@ func resourceBucketDelete(ctx context.Context, d *schema.ResourceData, m interfa
 
 	http, err := p.client.BucketApi.DeleteBucket(updateContext(ctx, p)).Id(d.Id()).Execute()
 	if err != nil {
-		diags = append(diags, CreateDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, http))
 		return diags
 	}
 

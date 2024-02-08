@@ -43,5 +43,3 @@ resource "garage_bucket_key" "bucket_key_read-only" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
-
-

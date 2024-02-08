@@ -37,5 +37,3 @@ resource "garage_bucket_global_alias" "www" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
-
-

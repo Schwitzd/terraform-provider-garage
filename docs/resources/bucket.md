@@ -58,5 +58,3 @@ Read-Only:
 - `permissions_owner` (Boolean)
 - `permissions_read` (Boolean)
 - `permissions_write` (Boolean)
-
-

@@ -38,5 +38,3 @@ resource "garage_bucket_local_alias" "bucket_key_private-files" {
 ### Read-Only
 
 - `id` (String) The ID of this resource.
-
-
