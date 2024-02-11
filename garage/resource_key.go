@@ -63,7 +63,7 @@ func flattenKeyInfo(keyInfo *garage.KeyInfo) interface{} {
 	return map[string]interface{}{
 		"name":              keyInfo.Name,
 		"access_key_id":     keyInfo.AccessKeyId,
-		"secret_access_key": keyInfo.SecretAccessKey,
+		"secret_access_key": keyInfo.SecretAccessKey.Get(),
 		"permissions": map[string]interface{}{
 			"create_bucket": keyInfo.Permissions.CreateBucket,
 		},
@@ -151,7 +151,7 @@ func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{})
 
 	accessKeyID := d.Id()
 
-	keyInfo, http, err := p.client.KeyApi.GetKey(updateContext(ctx, p)).Id(accessKeyID).Execute()
+	keyInfo, http, err := p.client.KeyApi.GetKey(updateContext(ctx, p)).Id(accessKeyID).ShowSecretKey("true").Execute()
 	if err != nil {
 		diags = append(diags, createDiagnositc(err, http))
 		return diags
@@ -160,7 +160,11 @@ func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{})
 	for key, value := range flattenKeyInfo(keyInfo).(map[string]interface{}) {
 		err := d.Set(key, value)
 		if err != nil {
-			return diag.FromErr(err)
+			diags = append(diags, diag.Diagnostic{
+				Severity: diag.Error,
+				Summary:  err.Error(),
+			})
+			return diags
 		}
 	}
 
