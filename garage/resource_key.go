@@ -88,7 +88,7 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 		accessKeyID = accessKeyIDVal.(string)
 	}
 
-	if secretAccessKeyVal, ok := d.GetOk("access_key_id"); ok {
+	if secretAccessKeyVal, ok := d.GetOk("secret_access_key"); ok {
 		secretAccessKey = secretAccessKeyVal.(string)
 	}
 
