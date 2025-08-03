@@ -6,8 +6,18 @@ import (
 	garage "git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/thoas/go-funk"
 )
+
+func resourceBucket() *schema.Resource {
+	return &schema.Resource{
+		Description:   "This resource can be used to manage Garage buckets.",
+		Schema:        schemaBucket(),
+		CreateContext: resourceBucketCreate,
+		ReadContext:   resourceBucketRead,
+		UpdateContext: resourceBucketUpdate,
+		DeleteContext: resourceBucketDelete,
+	}
+}
 
 func schemaBucket() map[string]*schema.Schema {
 	return map[string]*schema.Schema{
@@ -36,48 +46,10 @@ func schemaBucket() map[string]*schema.Schema {
 			Optional: true,
 			Computed: true,
 		},
-		// Computed
 		"global_aliases": {
-			Type: schema.TypeList,
-			Elem: &schema.Schema{
-				Type: schema.TypeString,
-			},
+			Type:     schema.TypeList,
+			Elem:     &schema.Schema{Type: schema.TypeString},
 			Computed: true,
-		},
-		"keys": {
-			Type:     schema.TypeSet,
-			Computed: true,
-			Elem: &schema.Resource{
-				Schema: map[string]*schema.Schema{
-					"access_key_id": {
-						Type:     schema.TypeString,
-						Computed: true,
-					},
-					"name": {
-						Type:     schema.TypeString,
-						Computed: true,
-					},
-					"permissions_read": {
-						Type:     schema.TypeBool,
-						Computed: true,
-					},
-					"permissions_write": {
-						Type:     schema.TypeBool,
-						Computed: true,
-					},
-					"permissions_owner": {
-						Type:     schema.TypeBool,
-						Computed: true,
-					},
-					"local_aliases": {
-						Type: schema.TypeList,
-						Elem: &schema.Schema{
-							Type: schema.TypeString,
-						},
-						Computed: true,
-					},
-				},
-			},
 		},
 		"objects": {
 			Type:     schema.TypeInt,
@@ -94,57 +66,33 @@ func schemaBucket() map[string]*schema.Schema {
 	}
 }
 
-func resourceBucket() *schema.Resource {
-	return &schema.Resource{
-		Description:   "This resource can be used to manage Garage buckets.",
-		CreateContext: resourceBucketCreate,
-		ReadContext:   resourceBucketRead,
-		UpdateContext: resourceBucketUpdate,
-		DeleteContext: resourceBucketDelete,
-		Schema:        schemaBucket(),
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
-	}
-}
-
-func flattenBucketKey(bucketKey garage.BucketKeyInfo) interface{} {
-	return map[string]interface{}{
-		"access_key_id":     *bucketKey.AccessKeyId,
-		"name":              *bucketKey.Name,
-		"permissions_read":  *bucketKey.Permissions.Read,
-		"permissions_write": *bucketKey.Permissions.Write,
-		"permissions_owner": *bucketKey.Permissions.Owner,
-	}
-}
-
-func flattenBucketInfo(bucket *garage.BucketInfo) interface{} {
+func flattenBucketInfo(bucket *garage.GetBucketInfoResponse) interface{} {
 	b := map[string]interface{}{}
 	b["global_aliases"] = bucket.GlobalAliases
 
-	if bucket.HasWebsiteAccess() {
-		b["website_access_enabled"] = bucket.GetWebsiteAccess()
-	}
+	b["website_access_enabled"] = bucket.WebsiteAccess
 
-	if bucket.HasWebsiteConfig() {
-		b["website_config_index_document"] = bucket.GetWebsiteConfig().IndexDocument
-		b["website_config_error_document"] = bucket.GetWebsiteConfig().ErrorDocument
-	}
-
-	if bucket.HasQuotas() {
-		if bucket.Quotas.MaxSize.IsSet() {
-			b["quota_max_size"] = bucket.GetQuotas().MaxSize.Get()
-		}
-		if bucket.Quotas.MaxObjects.IsSet() {
-			b["quota_max_objects"] = bucket.GetQuotas().MaxObjects.Get()
+	// Website config
+	if bucket.WebsiteConfig.IsSet() {
+		websiteConfig := bucket.WebsiteConfig.Get()
+		if websiteConfig != nil {
+			b["website_config_index_document"] = websiteConfig.IndexDocument
+			b["website_config_error_document"] = websiteConfig.ErrorDocument
 		}
 	}
 
-	b["keys"] = funk.Map(bucket.GetKeys(), flattenBucketKey)
+	// Quotas
+	if bucket.Quotas.MaxSize.IsSet() {
+		b["quota_max_size"] = bucket.Quotas.MaxSize.Get()
+	}
+	if bucket.Quotas.MaxObjects.IsSet() {
+		b["quota_max_objects"] = bucket.Quotas.MaxObjects.Get()
+	}
 
-	b["objects"] = *bucket.Objects
-	b["bytes"] = *bucket.Bytes
-	b["unfinished_uploads"] = *bucket.UnfinishedUploads
+	// Scalar values: assign directly
+	b["objects"] = bucket.Objects
+	b["bytes"] = bucket.Bytes
+	b["unfinished_uploads"] = bucket.UnfinishedUploads
 
 	return b
 }
@@ -153,17 +101,27 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 	p := m.(*garageProvider)
 	var diags diag.Diagnostics
 
-	bucketInfo, http, err := p.client.BucketApi.CreateBucket(updateContext(ctx, p)).CreateBucketRequest(garage.CreateBucketRequest{}).Execute()
+	// Prepare request body
+	createReq := garage.CreateBucketRequest{}
+	if v, ok := d.GetOk("global_alias"); ok {
+		createReq.SetGlobalAlias(v.(string))
+	}
+	// (Optionally support local_alias here as well)
+
+	// Create the request builder, set the body, execute
+	req := p.client.BucketAPI.CreateBucket(updateContext(ctx, p))
+	req = req.CreateBucketRequest(createReq)
+	resp, httpResp, err := req.Execute()
 	if err != nil {
-		diags = append(diags, createDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, httpResp))
 		return diags
 	}
 
-	d.SetId(*bucketInfo.Id)
+	// Set Terraform resource ID to Garage bucket's ID
+	d.SetId(resp.Id)
 
-	diags = resourceBucketUpdate(ctx, d, m)
-
-	return diags
+	// Optionally, update additional properties after creation
+	return resourceBucketUpdate(ctx, d, m)
 }
 
 func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
@@ -172,15 +130,18 @@ func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface
 
 	bucketID := d.Id()
 
-	bucketInfo, http, err := p.client.BucketApi.GetBucketInfo(updateContext(ctx, p)).Id(bucketID).Execute()
+	// Build the request: use .Id(bucketID) builder
+	req := p.client.BucketAPI.GetBucketInfo(updateContext(ctx, p)).Id(bucketID)
+
+	bucketInfo, httpResp, err := req.Execute()
 	if err != nil {
-		diags = append(diags, createDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, httpResp))
 		return diags
 	}
 
+	// Map the response to Terraform state
 	for key, value := range flattenBucketInfo(bucketInfo).(map[string]interface{}) {
-		err := d.Set(key, value)
-		if err != nil {
+		if err := d.Set(key, value); err != nil {
 			return diag.FromErr(err)
 		}
 	}
@@ -192,66 +153,85 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 	p := m.(*garageProvider)
 	var diags diag.Diagnostics
 
-	webAccessEnabled := false
-	var webConfigIndexDoc *string
-	webConfigIndexDoc = nil
-	var webConfigErrorDoc *string
-	webConfigErrorDoc = nil
+	// Website config
+	var websiteAccess *garage.UpdateBucketWebsiteAccess
 	if webAccessEnabledVal, ok := d.GetOk("website_access_enabled"); ok {
-		webAccessEnabled = webAccessEnabledVal.(bool)
-	}
-	if webConfigIndexDocVal, ok := d.GetOk("website_config_index_document"); ok {
-		webConfigIndexDocVal := webConfigIndexDocVal.(string)
-		webConfigIndexDoc = &webConfigIndexDocVal
-	}
-	if webConfigErrorDocVal, ok := d.GetOk("website_config_error_document"); ok {
-		webConfigErrorDocVal := webConfigErrorDocVal.(string)
-		webConfigErrorDoc = &webConfigErrorDocVal
-	}
-
-	var quotaMaxSize *int64
-	quotaMaxSize = nil
-	var quotaMaxObjects *int64
-	quotaMaxObjects = nil
-	if quotaMaxSizeVal, ok := d.GetOk("quota_max_size"); ok {
-		quotaMaxSizeVal := int64(quotaMaxSizeVal.(int))
-		quotaMaxSize = &quotaMaxSizeVal
-	}
-	if quotaMaxObjectsVal, ok := d.GetOk("quota_max_objects"); ok {
-		quotaMaxObjectsVal := int64(quotaMaxObjectsVal.(int))
-		quotaMaxObjects = &quotaMaxObjectsVal
-	}
-
-	updateBucketRequest := garage.UpdateBucketRequest{
-		WebsiteAccess: &garage.UpdateBucketRequestWebsiteAccess{
-			Enabled:       &webAccessEnabled,
-			IndexDocument: webConfigIndexDoc,
-			ErrorDocument: webConfigErrorDoc,
-		},
-		Quotas: &garage.UpdateBucketRequestQuotas{
-			MaxSize:    *garage.NewNullableInt64(quotaMaxSize),
-			MaxObjects: *garage.NewNullableInt64(quotaMaxObjects),
-		},
+		enabled := webAccessEnabledVal.(bool)
+		// Only build this struct if enabled
+		if enabled {
+			indexDoc := ""
+			if v, ok := d.GetOk("website_config_index_document"); ok {
+				indexDoc = v.(string)
+			}
+			// If enabled, indexDocument is required
+			if indexDoc == "" {
+				return diag.Errorf("website_config_index_document is required when website_access_enabled is true")
+			}
+			var errorDoc *string
+			if v, ok := d.GetOk("website_config_error_document"); ok {
+				doc := v.(string)
+				errorDoc = &doc
+			}
+			websiteAccess = &garage.UpdateBucketWebsiteAccess{
+				Enabled:       enabled,
+				IndexDocument: *garage.NewNullableString(&indexDoc),
+				ErrorDocument: *garage.NewNullableString(errorDoc),
+			}
+		} else {
+			// Disabled: don’t send indexDocument/errorDocument
+			websiteAccess = &garage.UpdateBucketWebsiteAccess{
+				Enabled: enabled,
+			}
+		}
 	}
 
-	_, http, err := p.client.BucketApi.UpdateBucket(updateContext(ctx, p)).Id(d.Id()).UpdateBucketRequest(updateBucketRequest).Execute()
+	// Quotas (both must be present, or both must be null)
+	var quotas *garage.ApiBucketQuotas
+
+	// Check for both fields set
+	maxSizeSet := d.Get("quota_max_size") != nil
+	maxObjectsSet := d.Get("quota_max_objects") != nil
+
+	if maxSizeSet && maxObjectsSet {
+		maxSize := int64(d.Get("quota_max_size").(int))
+		maxObjects := int64(d.Get("quota_max_objects").(int))
+		quotas = &garage.ApiBucketQuotas{
+			MaxSize:    *garage.NewNullableInt64(&maxSize),
+			MaxObjects: *garage.NewNullableInt64(&maxObjects),
+		}
+	} else if !maxSizeSet && !maxObjectsSet {
+		// quotas = nil, don't send quota changes
+	} else {
+		return diag.Errorf("Both quota_max_size and quota_max_objects must be set, or neither (to unset quotas)")
+	}
+
+	updateReq := garage.UpdateBucketRequestBody{}
+	if websiteAccess != nil {
+		updateReq.WebsiteAccess = *garage.NewNullableUpdateBucketWebsiteAccess(websiteAccess)
+	}
+	if quotas != nil {
+		updateReq.Quotas = *garage.NewNullableApiBucketQuotas(quotas)
+	}
+
+	req := p.client.BucketAPI.UpdateBucket(updateContext(ctx, p), d.Id())
+	req = req.UpdateBucketRequestBody(updateReq)
+	_, httpResp, err := req.Execute()
 	if err != nil {
-		diags = append(diags, createDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, httpResp))
 		return diags
 	}
 
-	diags = resourceBucketRead(ctx, d, m)
-
-	return diags
+	return resourceBucketRead(ctx, d, m)
 }
 
 func resourceBucketDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 	var diags diag.Diagnostics
 
-	http, err := p.client.BucketApi.DeleteBucket(updateContext(ctx, p)).Id(d.Id()).Execute()
+	req := p.client.BucketAPI.DeleteBucket(updateContext(ctx, p), d.Id())
+	httpResp, err := req.Execute()
 	if err != nil {
-		diags = append(diags, createDiagnositc(err, http))
+		diags = append(diags, createDiagnositc(err, httpResp))
 		return diags
 	}
 
