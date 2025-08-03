@@ -17,14 +17,11 @@ func createDiagnositc(err error, http *http.Response) diag.Diagnostic {
 		Summary:  err.Error(),
 	}
 
-	if http != nil && http.Body != nil {
-		defer http.Body.Close()
+	apiError := new(garageAPIError)
 
-		apiError := new(garageAPIError)
-
-		if decodeErr := json.NewDecoder(http.Body).Decode(apiError); decodeErr == nil {
-			diagnostic.Detail = apiError.Message
-		}
+	decodeErr := json.NewDecoder(http.Body).Decode(apiError)
+	if decodeErr == nil {
+		diagnostic.Detail = apiError.Message
 	}
 
 	return diagnostic
