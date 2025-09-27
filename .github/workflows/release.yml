@@ -10,11 +10,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v6
@@ -23,8 +18,8 @@ jobs:
           passphrase: ${{ secrets.PASSPHRASE }}
 
       # Run semantic-release first; it will create the tag & update CHANGELOG.md
-      - name: semantic-release
-        id: sr
+      - name: Release
+        id: release
         uses: cycjimmy/semantic-release-action@v5
         with:
           extra_plugins: |
@@ -38,15 +33,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
 
-      # Re-checkout to get the new tag/commit so the tree is clean for GoReleaser
-      - name: Re-checkout after semantic-release
-        if: steps.sr.outputs.new_release_published == 'true'
-        uses: actions/checkout@v5
+      - name: Set up Go
+        if: steps.release.outputs.new_release_published == 'true'
+        uses: actions/setup-go@v6
         with:
-          fetch-depth: 0
+          go-version-file: go.mod
+          cache: true
 
       - name: Run GoReleaser
-        if: steps.sr.outputs.new_release_published == 'true'
+        if: steps.release.outputs.new_release_published == 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           args: release --clean
