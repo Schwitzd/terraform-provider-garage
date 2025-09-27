@@ -3,7 +3,7 @@ services:
   garage:
     container_name: garage
     restart: unless-stopped
-    image: dxflrs/amd64_garage:v2.0.0
+    image: dxflrs/amd64_garage:v2.1.0
     volumes:
       - ./garage.toml:/etc/garage.toml:ro
       - ./volumes/garage/meta:/var/lib/garage/meta
