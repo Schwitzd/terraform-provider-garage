@@ -3,12 +3,12 @@
 page_title: "garage_key Resource - terraform-provider-garage"
 subcategory: ""
 description: |-
-  This resource can be used to manage Garage keys.
+  Manage a Garage access key.
 ---
 
 # garage_key (Resource)
 
-This resource can be used to manage Garage keys.
+Manage a Garage access key.
 
 ## Example Usage
 
@@ -26,11 +26,34 @@ resource "garage_key" "key" {
 
 ### Optional
 
-- `access_key_id` (String)
-- `name` (String) The name of the key.
-- `permissions` (Map of Boolean)
-- `secret_access_key` (String, Sensitive)
+- `expiration` (String) Optional expiration timestamp in RFC3339 format (e.g. `2025-09-26T12:00:00Z`). After this time the key becomes invalid.
+- `name` (String) Human-friendly label for the access key. Does not affect permissions or behavior.
+- `permissions` (Block List, Max: 1) Access permissions for the key. Only one block is allowed. (see [below for nested schema](#nestedblock--permissions))
 
 ### Read-Only
 
+- `access_key_id` (String) Unique identifier of the access key, used in API requests and alias binding.
+- `created` (String) Timestamp (RFC3339) when the key was created.
+- `effective_permissions` (List of Object) The effective permissions currently active for the key (read/write/admin). (see [below for nested schema](#nestedatt--effective_permissions))
+- `expired` (Boolean) True if the key is expired according to its `expiration` setting.
 - `id` (String) The ID of this resource.
+- `secret_access_key` (String, Sensitive) Secret token associated with the key. Only visible at creation time — it will not be returned again.
+
+<a id="nestedblock--permissions"></a>
+### Nested Schema for `permissions`
+
+Optional:
+
+- `admin` (Boolean) Allow administrative access (bucket/key management).
+- `read` (Boolean) Allow read access to buckets and objects.
+- `write` (Boolean) Allow write access (create/update/delete objects).
+
+
+<a id="nestedatt--effective_permissions"></a>
+### Nested Schema for `effective_permissions`
+
+Read-Only:
+
+- `admin` (Boolean)
+- `read` (Boolean)
+- `write` (Boolean)

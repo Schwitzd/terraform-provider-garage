@@ -1,13 +1,19 @@
+replication_factor = 1
+consistency_mode = "consistent"
+
 metadata_dir = "/var/lib/garage/meta"
 data_dir = "/var/lib/garage/data"
+metadata_fsync = true
+data_fsync = false
+disable_scrub = false
+use_local_tz = false
+metadata_auto_snapshot_interval = "6h"
 db_engine = "lmdb"
-
-replication_mode = "none"
 compression_level = 1
 
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "127.0.0.1:3901"
-rpc_secret = "3a347d8725c6a08235595793050bdfd6c2d8640b29be435c9c77f524c851f517"
+rpc_secret = "b52e63d8f7a4c1e209df847ba93c5d74e1bc5a23cf0d48b2e76a3c15b4e68912"
 
 [s3_api]
 s3_region = "garage"
@@ -24,4 +30,4 @@ api_bind_addr = "[::]:3904"
 
 [admin]
 api_bind_addr = "0.0.0.0:3903"
-admin_token = "fbdefc33f62bde4c56bb8c516719dfbcc45b46b2ebe69c3b23f5c90830fda612"
+admin_token = "e6ac81f22b13a4e69fbd3c80ca1495af17edabf104a98d5e35fb1e76c28d3f0b"

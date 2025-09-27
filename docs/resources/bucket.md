@@ -3,12 +3,12 @@
 page_title: "garage_bucket Resource - terraform-provider-garage"
 subcategory: ""
 description: |-
-  This resource can be used to manage Garage buckets.
+  This resource manages Garage buckets (global alias optional; create-time local alias optional).
 ---
 
 # garage_bucket (Resource)
 
-This resource can be used to manage Garage buckets.
+This resource manages Garage buckets (global alias optional; create-time local alias optional).
 
 ## Example Usage
 
@@ -32,29 +32,34 @@ resource "garage_bucket" "bucket-with-quota" {
 
 ### Optional
 
-- `quota_max_objects` (Number)
-- `quota_max_size` (Number)
-- `website_access_enabled` (Boolean)
-- `website_config_error_document` (String)
-- `website_config_index_document` (String)
+- `global_alias` (String) Creates a global alias for the bucket. A global alias is unique cluster-wide (e.g. `my-bucket`). You can add or remove additional aliases later using the `garage_bucket_alias` resource.
+- `local_alias` (Block List, Max: 1) Creates a local alias bound to a specific access key at bucket creation time. Only one block is allowed here. (see [below for nested schema](#nestedblock--local_alias))
+- `quotas` (Block List, Max: 1) Optional storage quotas for this bucket. If omitted or set to zero, the bucket has no limits. (see [below for nested schema](#nestedblock--quotas))
+- `website_access_enabled` (Boolean) Enable static website hosting for the bucket. Defaults to `false`. When enabled, `website_config_index_document` is required.
+- `website_config_error_document` (String) Name of the error document (e.g. `404.html`). Optional, used when website hosting is enabled.
+- `website_config_index_document` (String) Name of the index document (e.g. `index.html`). Required if `website_access_enabled` is `true`.
 
 ### Read-Only
 
-- `bytes` (Number)
-- `global_aliases` (List of String)
+- `bytes` (Number) Total bytes used by objects in the bucket.
+- `global_aliases` (List of String) List of all global aliases currently bound to the bucket.
 - `id` (String) The ID of this resource.
-- `keys` (Set of Object) (see [below for nested schema](#nestedatt--keys))
-- `objects` (Number)
-- `unfinished_uploads` (Number)
+- `objects` (Number) Number of objects stored in the bucket.
+- `unfinished_uploads` (Number) Number of unfinished uploads currently tracked for the bucket.
 
-<a id="nestedatt--keys"></a>
-### Nested Schema for `keys`
+<a id="nestedblock--local_alias"></a>
+### Nested Schema for `local_alias`
 
-Read-Only:
+Required:
 
-- `access_key_id` (String)
-- `local_aliases` (List of String)
-- `name` (String)
-- `permissions_owner` (Boolean)
-- `permissions_read` (Boolean)
-- `permissions_write` (Boolean)
+- `access_key_id` (String) The access key ID that this local alias is bound to.
+- `alias` (String) Local alias name. Acts as a shortcut for the bucket but only in the context of the given access key.
+
+
+<a id="nestedblock--quotas"></a>
+### Nested Schema for `quotas`
+
+Optional:
+
+- `max_objects` (Number) Maximum number of objects allowed in this bucket. `0` means unlimited.
+- `max_size` (Number) Maximum total size in bytes allowed for this bucket. `0` means unlimited.

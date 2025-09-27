@@ -1,0 +1,50 @@
+# Terraform Provider release workflow.
+name: Release
+
+on:
+    workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Allow goreleaser to access older tag information.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+
+      - name: Release
+        id: release
+        uses: cycjimmy/semantic-release-action@v5
+        with:
+          extra_plugins: |
+            "@semantic-release/changelog@6.0.2"
+            "@semantic-release/commit-analyzer@9.0.2"
+            "@semantic-release/exec@6.0.3"
+            "@semantic-release/git@10.0.1"
+            "@semantic-release/github@8.0.7"
+            "@semantic-release/release-notes-generator@10.0.3"
+            "conventional-changelog-conventionalcommits@8.0.0"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
