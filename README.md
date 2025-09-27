@@ -2,15 +2,27 @@
 
 This repository contains a provider for managing [Garage](https://garagehq.deuxfleurs.fr/), a distributed, S3-compatible object store.
 
-With this provider you can declaratively manage Garage resources such as:
+With this provider, you can declaratively manage the following resources in Garage:
 
 - **Buckets**
 - **Bucket Aliases**
 - **Access Keys**
 
+>[!WARNING]
+>Requires Garage version 2.0 or later.
+
 ## Getting Started
 
 To get started, refer to the documentation [included in this repository](docs/index.md). It contains a list of options for the provider.
+
+## Local deployment
+
+This repository also provides a script that is ready to use to set up a local instance of Garage.
+
+```sh
+cd docker
+sh setup.sh
+```
 
 ## Disclaimer
 
