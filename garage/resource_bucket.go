@@ -208,7 +208,7 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 	req := p.client.BucketAPI.CreateBucket(updateContext(ctx, p)).CreateBucketRequest(reqBody)
 	resp, httpResp, err := req.Execute()
 	if err != nil {
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	d.SetId(resp.Id)
@@ -231,7 +231,7 @@ func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface
 			d.SetId("")
 			return nil
 		}
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	for k, v := range flattenBucketInfo(bucket) {
@@ -320,7 +320,7 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 				))
 			_, httpResp, err := req.Execute()
 			if err != nil {
-				return diag.Diagnostics{createDiagnositc(err, httpResp)}
+				return createDiagnostics(err, httpResp)
 			}
 		}
 
@@ -336,7 +336,7 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 				))
 			_, httpResp, err := req.Execute()
 			if err != nil {
-				return diag.Diagnostics{createDiagnositc(err, httpResp)}
+				return createDiagnostics(err, httpResp)
 			}
 		}
 	}
@@ -367,7 +367,7 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 	req := p.client.BucketAPI.UpdateBucket(updateContext(ctx, p)).Id(d.Id()).UpdateBucketRequestBody(updateReq)
 	_, httpResp, err := req.Execute()
 	if err != nil {
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	return resourceBucketRead(ctx, d, m)
@@ -382,7 +382,7 @@ func resourceBucketDelete(ctx context.Context, d *schema.ResourceData, m interfa
 		if httpResp != nil && httpResp.StatusCode == 404 {
 			return nil
 		}
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 	return nil
 }

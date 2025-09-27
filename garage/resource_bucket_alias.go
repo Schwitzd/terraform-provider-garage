@@ -123,7 +123,7 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 			))
 		_, httpResp, err := req.Execute()
 		if err != nil {
-			return diag.Diagnostics{createDiagnositc(err, httpResp)}
+			return createDiagnostics(err, httpResp)
 		}
 		d.SetId(fmt.Sprintf("global:%s", global))
 		_ = d.Set("kind", "global")
@@ -140,7 +140,7 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 			))
 		_, httpResp, err := req.Execute()
 		if err != nil {
-			return diag.Diagnostics{createDiagnositc(err, httpResp)}
+			return createDiagnostics(err, httpResp)
 		}
 		d.SetId(fmt.Sprintf("local:%s:%s", keyID, local))
 		_ = d.Set("kind", "local")
@@ -174,7 +174,7 @@ func resourceBucketAliasRead(ctx context.Context, d *schema.ResourceData, m inte
 			d.SetId("")
 			return nil
 		}
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	switch kind {
@@ -249,7 +249,7 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 			if httpResp != nil && httpResp.StatusCode == 404 {
 				return nil
 			}
-			return diag.Diagnostics{createDiagnositc(err, httpResp)}
+			return createDiagnostics(err, httpResp)
 		}
 
 	case "local":
@@ -266,7 +266,7 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 			if httpResp != nil && httpResp.StatusCode == 404 {
 				return nil
 			}
-			return diag.Diagnostics{createDiagnositc(err, httpResp)}
+			return createDiagnostics(err, httpResp)
 		}
 	}
 

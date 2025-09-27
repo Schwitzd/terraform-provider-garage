@@ -145,7 +145,7 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 	req := p.client.AccessKeyAPI.CreateKey(updateContext(ctx, p)).Body(*body)
 	resp, httpResp, err := req.Execute()
 	if err != nil {
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	// ID & state
@@ -174,7 +174,7 @@ func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{})
 			d.SetId("")
 			return nil
 		}
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	_ = d.Set("access_key_id", resp.GetAccessKeyId())
@@ -205,7 +205,7 @@ func resourceKeyUpdate(ctx context.Context, d *schema.ResourceData, m interface{
 	req := p.client.AccessKeyAPI.UpdateKey(updateContext(ctx, p)).Id(id).UpdateKeyRequestBody(*body)
 	resp, httpResp, err := req.Execute()
 	if err != nil {
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 
 	// Refresh state from server response
@@ -228,7 +228,7 @@ func resourceKeyDelete(ctx context.Context, d *schema.ResourceData, m interface{
 		if httpResp != nil && httpResp.StatusCode == 404 {
 			return nil
 		}
-		return diag.Diagnostics{createDiagnositc(err, httpResp)}
+		return createDiagnostics(err, httpResp)
 	}
 	return nil
 }
