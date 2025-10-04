@@ -24,6 +24,19 @@ cd docker
 sh setup.sh
 ```
 
+## License
+
+This project uses a **dual-license** structure:
+
+- **Source Code:** Licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE-code).  
+  You may use, modify, and distribute the code under the terms of the AGPL-3.0.
+
+- **Documentation:** Licensed under the [MIT License](./LICENSE).  
+  You are free to use, copy, modify, and distribute the documentation with attribution.
+
+> The AGPL-3.0 applies only to the source code.  
+> All documentation, examples, and markdown content are covered by the MIT license unless stated otherwise.
+
 ## Disclaimer
 
 I do not have any prior experience with the Go programming language. This provider has been rewritten for Garage v2 with the assistance of LLMs, and is intended for experimental or personal use only.
