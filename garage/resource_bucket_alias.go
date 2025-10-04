@@ -3,6 +3,7 @@ package garage
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 
@@ -111,10 +112,17 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 	keyID := d.Get("access_key_id").(string)
 
 	switch {
+	case global != "" && (local != "" || keyID != ""):
+		return diag.Diagnostics{{
+			Severity: diag.Error,
+			Summary:  "invalid alias specification",
+			Detail:   "set either global_alias or (local_alias + access_key_id), not both",
+		}}
+
 	case global != "":
-		// Add GLOBAL alias
+		// GLOBAL alias
 		req := p.client.BucketAliasAPI.
-			AddBucketAlias(updateContext(ctx, p)).
+			AddBucketAlias(p.withToken(ctx)).
 			AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
 				global, // globalAlias
 				"",     // accessKeyId (unused)
@@ -129,9 +137,9 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 		_ = d.Set("kind", "global")
 
 	case local != "" && keyID != "":
-		// Add LOCAL alias
+		// LOCAL alias
 		req := p.client.BucketAliasAPI.
-			AddBucketAlias(updateContext(ctx, p)).
+			AddBucketAlias(p.withToken(ctx)).
 			AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
 				"",    // globalAlias (unused)
 				keyID, // accessKeyId
@@ -146,10 +154,10 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 		_ = d.Set("kind", "local")
 
 	default:
-		return diag.Diagnostics{diag.Diagnostic{
+		return diag.Diagnostics{{
 			Severity: diag.Error,
 			Summary:  "invalid alias specification",
-			Detail:   "Provide either global_alias or (local_alias + access_key_id).",
+			Detail:   "provide either global_alias or (local_alias + access_key_id)",
 		}}
 	}
 
@@ -166,20 +174,25 @@ func resourceBucketAliasRead(ctx context.Context, d *schema.ResourceData, m inte
 
 	kind, alias, keyID := parseAliasID(id, d)
 
-	// Fetch bucket info once; used by both branches
-	breq := p.client.BucketAPI.GetBucketInfo(updateContext(ctx, p)).Id(bucketID)
-	info, httpResp, err := breq.Execute()
+	// Fetch bucket info (use per-op context with token)
+	info, httpResp, err := p.client.BucketAPI.
+		GetBucketInfo(p.withToken(ctx)).
+		Id(bucketID).
+		Execute()
 	if err != nil {
-		if httpResp != nil && httpResp.StatusCode == 404 {
+		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 			d.SetId("")
 			return nil
 		}
 		return createDiagnostics(err, httpResp)
 	}
+	if info == nil {
+		d.SetId("")
+		return nil
+	}
 
 	switch kind {
 	case "global":
-		// Verify global alias presence on the bucket
 		found := false
 		for _, ga := range info.GetGlobalAliases() {
 			if ga == alias {
@@ -199,7 +212,6 @@ func resourceBucketAliasRead(ctx context.Context, d *schema.ResourceData, m inte
 			d.SetId("")
 			return nil
 		}
-		// Look for the key within this bucket and confirm the alias is present for that key.
 		found := false
 		for _, k := range info.GetKeys() {
 			if !keyMatchesAccessKeyID(k, keyID) {
@@ -236,38 +248,48 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 
 	switch kind {
 	case "global":
-		req := p.client.BucketAliasAPI.
-			RemoveBucketAlias(updateContext(ctx, p)).
+		_, httpResp, err := p.client.BucketAliasAPI.
+			RemoveBucketAlias(p.withToken(ctx)).
 			RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
 				alias, // globalAlias
 				"",    // accessKeyId (unused)
-				"",    // localAlias  (unused)
+				"",    // localAlias (unused)
 				bucketID,
-			))
-		_, httpResp, err := req.Execute()
+			)).
+			Execute()
 		if err != nil {
-			if httpResp != nil && httpResp.StatusCode == 404 {
+			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 				return nil
 			}
 			return createDiagnostics(err, httpResp)
 		}
 
 	case "local":
-		req := p.client.BucketAliasAPI.
-			RemoveBucketAlias(updateContext(ctx, p)).
+		// optional: guard against malformed ID
+		if keyID == "" || alias == "" {
+			d.SetId("")
+			return nil
+		}
+		_, httpResp, err := p.client.BucketAliasAPI.
+			RemoveBucketAlias(p.withToken(ctx)).
 			RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
 				"",    // globalAlias (unused)
 				keyID, // accessKeyId
 				alias, // localAlias
 				bucketID,
-			))
-		_, httpResp, err := req.Execute()
+			)).
+			Execute()
 		if err != nil {
-			if httpResp != nil && httpResp.StatusCode == 404 {
+			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 				return nil
 			}
 			return createDiagnostics(err, httpResp)
 		}
+
+	default:
+		// unknown kind -> treat as already gone
+		d.SetId("")
+		return nil
 	}
 
 	return nil

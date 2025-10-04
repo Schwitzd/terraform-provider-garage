@@ -3,6 +3,7 @@ package garage
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"reflect"
 	"time"
 
@@ -136,28 +137,26 @@ func schemaKey() map[string]*schema.Schema {
 func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 
-	// Build UpdateKeyRequestBody for creation (API reuses same shape)
-	body, diags := buildUpdateKeyRequestBody(d)
+	body, diags := buildUpdateKeyRequestBody(d) // shape reused by Create
 	if len(diags) > 0 {
 		return diags
 	}
 
-	req := p.client.AccessKeyAPI.CreateKey(updateContext(ctx, p)).Body(*body)
-	resp, httpResp, err := req.Execute()
+	resp, httpResp, err := p.client.AccessKeyAPI.
+		CreateKey(p.withToken(ctx)).
+		Body(*body).
+		Execute()
 	if err != nil {
 		return createDiagnostics(err, httpResp)
 	}
 
-	// ID & state
 	d.SetId(resp.GetAccessKeyId())
 	_ = d.Set("access_key_id", resp.GetAccessKeyId())
 	if s := safeGetStringPtr(resp.GetSecretAccessKeyOk()); s != "" {
 		_ = d.Set("secret_access_key", s)
 	}
 
-	// Fill computed fields
 	flattenKeyInfo(resp, d)
-
 	return nil
 }
 
@@ -166,11 +165,12 @@ func resourceKeyCreate(ctx context.Context, d *schema.ResourceData, m interface{
 func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 
-	id := d.Id()
-	req := p.client.AccessKeyAPI.GetKeyInfo(updateContext(ctx, p)).Id(id)
-	resp, httpResp, err := req.Execute()
+	resp, httpResp, err := p.client.AccessKeyAPI.
+		GetKeyInfo(p.withToken(ctx)).
+		Id(d.Id()).
+		Execute()
 	if err != nil {
-		if httpResp != nil && httpResp.StatusCode == 404 {
+		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 			d.SetId("")
 			return nil
 		}
@@ -178,9 +178,8 @@ func resourceKeyRead(ctx context.Context, d *schema.ResourceData, m interface{})
 	}
 
 	_ = d.Set("access_key_id", resp.GetAccessKeyId())
-	// Secret is usually not returned after the first call; preserve old if API doesn’t return it
 	if s := safeGetStringPtr(resp.GetSecretAccessKeyOk()); s != "" {
-		_ = d.Set("secret_access_key", s)
+		_ = d.Set("secret_access_key", s) // preserve if API returns it
 	}
 
 	flattenKeyInfo(resp, d)
@@ -201,14 +200,15 @@ func resourceKeyUpdate(ctx context.Context, d *schema.ResourceData, m interface{
 		return diags
 	}
 
-	id := d.Id()
-	req := p.client.AccessKeyAPI.UpdateKey(updateContext(ctx, p)).Id(id).UpdateKeyRequestBody(*body)
-	resp, httpResp, err := req.Execute()
+	resp, httpResp, err := p.client.AccessKeyAPI.
+		UpdateKey(p.withToken(ctx)).
+		Id(d.Id()).
+		UpdateKeyRequestBody(*body).
+		Execute()
 	if err != nil {
 		return createDiagnostics(err, httpResp)
 	}
 
-	// Refresh state from server response
 	_ = d.Set("access_key_id", resp.GetAccessKeyId())
 	if s := safeGetStringPtr(resp.GetSecretAccessKeyOk()); s != "" {
 		_ = d.Set("secret_access_key", s)
@@ -222,10 +222,12 @@ func resourceKeyUpdate(ctx context.Context, d *schema.ResourceData, m interface{
 func resourceKeyDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 
-	id := d.Id()
-	httpResp, err := p.client.AccessKeyAPI.DeleteKey(updateContext(ctx, p)).Id(id).Execute()
+	httpResp, err := p.client.AccessKeyAPI.
+		DeleteKey(p.withToken(ctx)).
+		Id(d.Id()).
+		Execute()
 	if err != nil {
-		if httpResp != nil && httpResp.StatusCode == 404 {
+		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 			return nil
 		}
 		return createDiagnostics(err, httpResp)

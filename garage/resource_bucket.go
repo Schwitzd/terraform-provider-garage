@@ -3,6 +3,7 @@ package garage
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	garage "git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -190,7 +191,7 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 		reqBody.SetGlobalAlias(alias)
 	}
 
-	// Create-time only: local alias bound to an access key (SDK: AccessKeyId + Alias)
+	// optional local_alias at create time
 	if raw, ok := d.GetOk("local_alias"); ok {
 		items := raw.([]interface{})
 		if len(items) == 1 && items[0] != nil {
@@ -199,21 +200,21 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 			ak := lm["access_key_id"].(string)
 
 			localAlias := garage.NewCreateBucketLocalAlias(ak, la)
-
-			// IMPORTANT: Set the struct directly (not the Nullable wrapper)
 			reqBody.SetLocalAlias(*localAlias)
 		}
 	}
 
-	req := p.client.BucketAPI.CreateBucket(updateContext(ctx, p)).CreateBucketRequest(reqBody)
-	resp, httpResp, err := req.Execute()
+	resp, httpResp, err := p.client.BucketAPI.
+		CreateBucket(p.withToken(ctx)).
+		CreateBucketRequest(reqBody).
+		Execute()
 	if err != nil {
 		return createDiagnostics(err, httpResp)
 	}
 
 	d.SetId(resp.Id)
 
-	// Preserve configured local_alias in state (not readable via GetBucketInfo)
+	// keep local_alias in state; not exposed by GetBucketInfo
 	if v, ok := d.GetOk("local_alias"); ok {
 		_ = d.Set("local_alias", v)
 	}
@@ -224,14 +225,20 @@ func resourceBucketCreate(ctx context.Context, d *schema.ResourceData, m interfa
 func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 
-	req := p.client.BucketAPI.GetBucketInfo(updateContext(ctx, p)).Id(d.Id())
-	bucket, httpResp, err := req.Execute()
+	bucket, httpResp, err := p.client.BucketAPI.
+		GetBucketInfo(p.withToken(ctx)).
+		Id(d.Id()).
+		Execute()
 	if err != nil {
-		if httpResp != nil && httpResp.StatusCode == 404 {
+		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 			d.SetId("")
 			return nil
 		}
 		return createDiagnostics(err, httpResp)
+	}
+	if bucket == nil {
+		d.SetId("")
+		return nil
 	}
 
 	for k, v := range flattenBucketInfo(bucket) {
@@ -245,11 +252,10 @@ func resourceBucketRead(ctx context.Context, d *schema.ResourceData, m interface
 
 func buildWebsiteAccess(d *schema.ResourceData) (*garage.UpdateBucketWebsiteAccess, diag.Diagnostics) {
 	if v, ok := d.GetOk("website_access_enabled"); ok {
-		enabled := v.(bool)
-		if enabled {
+		if v.(bool) {
 			indexDoc, _ := getOkString(d, "website_config_index_document")
 			if indexDoc == "" {
-				return nil, diag.Diagnostics{diag.Diagnostic{
+				return nil, diag.Diagnostics{{
 					Severity: diag.Error,
 					Summary:  "website access enabled but index document missing",
 					Detail:   "website_config_index_document is required when website_access_enabled is true",
@@ -292,56 +298,49 @@ func buildQuotas(d *schema.ResourceData) (*garage.ApiBucketQuotas, diag.Diagnost
 		}, nil
 	}
 
-	return nil, diag.Diagnostics{diag.Diagnostic{
+	return nil, diag.Diagnostics{{
 		Severity: diag.Error,
 		Summary:  "invalid quotas configuration",
-		Detail:   "Both max_size and max_objects must be set together, or neither.",
+		Detail:   "both max_size and max_objects must be set together, or neither",
 	}}
 }
 
 func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 
-	// --- handle global_alias change by add->remove (rename semantics) ---
+	// rename semantics for global_alias
 	if d.HasChange("global_alias") {
 		oldRaw, newRaw := d.GetChange("global_alias")
 		oldAlias := oldRaw.(string)
 		newAlias := newRaw.(string)
 
-		// 1) add the new alias first, so we never drop access if add fails
+		// add new first
 		if newAlias != "" {
-			req := p.client.BucketAliasAPI.
-				AddBucketAlias(updateContext(ctx, p)).
+			_, httpResp, err := p.client.BucketAliasAPI.
+				AddBucketAlias(p.withToken(ctx)).
 				AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
-					newAlias, // globalAlias
-					"",       // accessKeyId (unused)
-					"",       // localAlias (unused)
-					d.Id(),   // bucketId
-				))
-			_, httpResp, err := req.Execute()
+					newAlias, "", "", d.Id(),
+				)).
+				Execute()
 			if err != nil {
 				return createDiagnostics(err, httpResp)
 			}
 		}
 
-		// 2) remove the old alias if there was one
+		// then remove old (if different)
 		if oldAlias != "" && oldAlias != newAlias {
-			req := p.client.BucketAliasAPI.
-				RemoveBucketAlias(updateContext(ctx, p)).
+			_, httpResp, err := p.client.BucketAliasAPI.
+				RemoveBucketAlias(p.withToken(ctx)).
 				RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
-					oldAlias, // globalAlias
-					"",       // accessKeyId (unused)
-					"",       // localAlias (unused)
-					d.Id(),   // bucketId
-				))
-			_, httpResp, err := req.Execute()
+					oldAlias, "", "", d.Id(),
+				)).
+				Execute()
 			if err != nil {
 				return createDiagnostics(err, httpResp)
 			}
 		}
 	}
 
-	// --- your existing update logic ---
 	websiteAccess, diags := buildWebsiteAccess(d)
 	if len(diags) > 0 {
 		return diags
@@ -351,7 +350,7 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 		return diags
 	}
 
-	// If nothing else to update, just refresh state
+	// nothing else to update
 	if websiteAccess == nil && quotas == nil && !d.HasChange("global_alias") {
 		return resourceBucketRead(ctx, d, m)
 	}
@@ -364,8 +363,11 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 		updateReq.Quotas = *garage.NewNullableApiBucketQuotas(quotas)
 	}
 
-	req := p.client.BucketAPI.UpdateBucket(updateContext(ctx, p)).Id(d.Id()).UpdateBucketRequestBody(updateReq)
-	_, httpResp, err := req.Execute()
+	_, httpResp, err := p.client.BucketAPI.
+		UpdateBucket(p.withToken(ctx)).
+		Id(d.Id()).
+		UpdateBucketRequestBody(updateReq).
+		Execute()
 	if err != nil {
 		return createDiagnostics(err, httpResp)
 	}
@@ -376,10 +378,12 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 func resourceBucketDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	p := m.(*garageProvider)
 
-	req := p.client.BucketAPI.DeleteBucket(updateContext(ctx, p)).Id(d.Id())
-	httpResp, err := req.Execute()
+	httpResp, err := p.client.BucketAPI.
+		DeleteBucket(p.withToken(ctx)).
+		Id(d.Id()).
+		Execute()
 	if err != nil {
-		if httpResp != nil && httpResp.StatusCode == 404 {
+		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
 			return nil
 		}
 		return createDiagnostics(err, httpResp)

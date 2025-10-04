@@ -17,7 +17,6 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.PASSPHRASE }}
 
-      # Run semantic-release first; it will create the tag & update CHANGELOG.md
       - name: Release
         id: release
         uses: cycjimmy/semantic-release-action@v5

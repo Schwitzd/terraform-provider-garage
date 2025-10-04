@@ -4,7 +4,11 @@ go 1.24.5
 
 require github.com/hashicorp/terraform-plugin-sdk/v2 v2.37.0
 
-require git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang v0.0.0-20250915173256-61e2693ca1e6
+require (
+	git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang v0.0.0-20250915173256-61e2693ca1e6
+	github.com/Masterminds/semver/v3 v3.4.0
+	github.com/hashicorp/terraform-plugin-log v0.9.0
+)
 
 require (
 	github.com/agext/levenshtein v1.2.3 // indirect
@@ -20,7 +24,6 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0 // indirect
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/hashicorp/terraform-plugin-go v0.28.0 // indirect
-	github.com/hashicorp/terraform-plugin-log v0.9.0 // indirect
 	github.com/hashicorp/terraform-registry-address v0.3.0 // indirect
 	github.com/hashicorp/terraform-svchost v0.1.1 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
