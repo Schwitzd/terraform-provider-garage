@@ -1,6 +1,6 @@
 {
   "name": "terraform-provider-garage",
-  "version": "0.0.0-development",
+  "version": "1.1.0",
   "private": true,
   "repository": {
     "type": "git",
