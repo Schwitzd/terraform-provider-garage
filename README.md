@@ -7,6 +7,7 @@ With this provider, you can declaratively manage the following resources in Gara
 - **Buckets**
 - **Bucket Aliases**
 - **Access Keys**
+- **Bucket-Key Permissions**
 
 >[!WARNING]
 >Requires Garage version 2.0 or later.

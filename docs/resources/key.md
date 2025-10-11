@@ -13,10 +13,11 @@ Manage a Garage access key.
 ## Example Usage
 
 ```terraform
-resource "garage_key" "key" {
-  name = "key"
-  permissions = {
-    create_bucket = true // defaults to false
+resource "garage_key" "app_key" {
+  name = "mykey"
+  permissions {
+    read  = true
+    write = true
   }
 }
 ```
