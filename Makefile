@@ -7,6 +7,10 @@ VERSION ?= $(shell \
 	else git describe --tags --abbrev=0 | sed 's/^v//'; fi \
 )
 OS_ARCH=linux_amd64
+GOCACHE_DIR ?= $(CURDIR)/.gocache
+COVERAGE_FILE ?= coverage.out
+UNIT_TEST_FLAGS ?= -count=1 -race -covermode=atomic -parallel=4 -timeout=5m
+ACCEPTANCE_TEST_FLAGS ?= -count=1 -timeout=120m
 
 .PHONY: all build release install test testacc clean docs
 
@@ -30,11 +34,15 @@ local-install: build
 	cp bin/${BINARY} ~/.terraform.d/plugins/registry.terraform.io/${NAMESPACE}/${NAME}/${VERSION}/${OS_ARCH}
 
 test:
-	go test -i $(TEST) || exit 1
-	echo $(TEST) | xargs -t -n4 go test $(TESTARGS) -timeout=30s -parallel=4
+	@echo "==> Running unit tests"
+	@rm -rf $(GOCACHE_DIR) $(COVERAGE_FILE)
+	@GOCACHE=$(GOCACHE_DIR) go test $(UNIT_TEST_FLAGS) -coverprofile=$(COVERAGE_FILE) $(TESTARGS) $(TEST)
+	@go tool cover -func=$(COVERAGE_FILE) | grep total
 
 testacc:
-	TF_ACC=1 go test $(TEST) -v $(TESTARGS) -timeout 120m
+	@echo "==> Running acceptance tests (TF_ACC=1)"
+	@rm -rf $(GOCACHE_DIR)
+	@TF_ACC=1 GOCACHE=$(GOCACHE_DIR) go test $(ACCEPTANCE_TEST_FLAGS) $(TESTARGS) $(TEST)
 
 docs:
 	@echo "Generating Terraform provider docs with tfplugindocs"

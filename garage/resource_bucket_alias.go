@@ -87,16 +87,10 @@ func resourceBucketAlias() *schema.Resource {
 		},
 
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, _ interface{}) error {
-			hasGlobal := d.Get("global_alias") != ""
-			hasLocal := d.Get("local_alias") != "" || d.Get("access_key_id") != ""
-
-			if !hasGlobal && !hasLocal {
-				return fmt.Errorf("must specify either `global_alias` or (`local_alias` + `access_key_id`)")
-			}
-			if hasGlobal && hasLocal {
-				return fmt.Errorf("`global_alias` conflicts with `local_alias`/`access_key_id`")
-			}
-			return nil
+			global := d.Get("global_alias").(string)
+			local := d.Get("local_alias").(string)
+			keyID := d.Get("access_key_id").(string)
+			return validateBucketAliasInputs(global, local, keyID)
 		},
 	}
 }
@@ -314,6 +308,19 @@ func parseAliasID(id string, d *schema.ResourceData) (kind, alias, keyID string)
 		return "global", ga.(string), ""
 	}
 	return "local", d.Get("local_alias").(string), d.Get("access_key_id").(string)
+}
+
+func validateBucketAliasInputs(global, local, keyID string) error {
+	hasGlobal := global != ""
+	hasLocal := local != "" || keyID != ""
+
+	if !hasGlobal && !hasLocal {
+		return fmt.Errorf("must specify either `global_alias` or (`local_alias` + `access_key_id`)")
+	}
+	if hasGlobal && hasLocal {
+		return fmt.Errorf("`global_alias` conflicts with `local_alias`/`access_key_id`")
+	}
+	return nil
 }
 
 // keyMatchesAccessKeyID returns true if the GetBucketInfoKey has AccessKeyId (or similar) == want.

@@ -7,9 +7,11 @@ import (
 )
 
 func main() {
-	plugin.Serve(&plugin.ServeOpts{
+	pluginServe(&plugin.ServeOpts{
 		ProviderFunc: func() *schema.Provider {
 			return garage.Provider()
 		},
 	})
 }
+
+var pluginServe = plugin.Serve
