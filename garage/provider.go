@@ -66,6 +66,7 @@ func Provider() *schema.Provider {
 		ResourcesMap: map[string]*schema.Resource{
 			"garage_bucket":       resourceBucket(),
 			"garage_bucket_alias": resourceBucketAlias(),
+			"garage_bucket_key":   resourceBucketKey(),
 			"garage_key":          resourceKey(),
 		},
 		DataSourcesMap:       map[string]*schema.Resource{},
