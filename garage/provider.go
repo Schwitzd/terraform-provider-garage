@@ -180,6 +180,23 @@ func detectGarageVersion(
 		return nil, "", fmt.Errorf("v2 payload invalid: %w", serr)
 	}
 	v2Err := enrichV2HTTP(err, resp)
+	fallbackAllowed := false
+	var fallbackReason string
+	if resp != nil {
+		switch resp.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			// Auth failures indicate bad credentials; do not mask them with a v1 fallback.
+			return nil, "", v2Err
+		default:
+			if ok, reason := shouldFallbackToV1(resp, err); ok {
+				fallbackAllowed = true
+				fallbackReason = reason
+			} else {
+				// Any other HTTP response means v2 exists but failed; surface the enriched error.
+				return nil, "", v2Err
+			}
+		}
+	}
 
 	// v1 via raw HTTP
 	v1Str, v1Err := probeV1Version(ctx, httpClient, scheme, host, token)
@@ -190,6 +207,14 @@ func detectGarageVersion(
 		}
 		v, _ := semver.NewVersion(norm)
 		return v, "v1", nil
+	}
+
+	if fallbackAllowed {
+		return nil, "", fmt.Errorf(
+			"this provider requires Garage 2.0.0 or newer; %s (%v)",
+			fallbackReason,
+			v2Err,
+		)
 	}
 
 	// both failed
@@ -281,18 +306,94 @@ func enrichV2HTTP(err error, resp *http.Response) error {
 	if resp == nil {
 		return err
 	}
-	var reqURL, respStatus, errBody string
-	respStatus = resp.Status
+	reqURL := ""
 	if resp.Request != nil && resp.Request.URL != nil {
 		reqURL = resp.Request.URL.String()
 	}
+	respStatus := strings.TrimSpace(resp.Status)
+
+	errBody := apiErrorBody(err)
+	cleanedErr := strings.TrimSpace(err.Error())
+	if cleanedErr == respStatus {
+		cleanedErr = ""
+	}
+
+	details := make([]string, 0, 2)
+	if errBody != "" {
+		details = append(details, errBody)
+	}
+	if cleanedErr != "" {
+		if errBody == "" || !strings.Contains(errBody, cleanedErr) {
+			details = append(details, cleanedErr)
+		}
+	}
+
+	prefix := fmt.Sprintf("GET %s -> %s", reqURL, respStatus)
+	switch len(details) {
+	case 0:
+		return fmt.Errorf("%s", prefix)
+	case 1:
+		return fmt.Errorf("%s: %s", prefix, details[0])
+	default:
+		return fmt.Errorf("%s: %s", prefix, strings.Join(details, "; "))
+	}
+}
+
+func shouldFallbackToV1(resp *http.Response, err error) (bool, string) {
+	if resp == nil {
+		return false, ""
+	}
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return true, "garage API v2 endpoint returned 404 Not Found"
+	case http.StatusBadRequest:
+		if details := parseGarageAPIError(err); details != nil {
+			message := strings.ToLower(details.Message)
+			if strings.Contains(message, "unknown api endpoint") && strings.HasSuffix(details.Path, "/v2/GetClusterStatus") {
+				return true, fmt.Sprintf("garage API v2 endpoint reports %q on %s", details.Message, details.Path)
+			}
+		}
+		return false, ""
+	default:
+		return false, ""
+	}
+}
+
+func apiErrorBody(err error) string {
+	if err == nil {
+		return ""
+	}
+
 	var apiErr *garage.GenericOpenAPIError
 	if errors.As(err, &apiErr) && apiErr.Body() != nil {
 		body := string(apiErr.Body())
 		if len(body) > 600 {
 			body = body[:600] + "…"
 		}
-		errBody = strings.TrimSpace(body)
+		return strings.TrimSpace(body)
 	}
-	return fmt.Errorf("GET %s -> %s: %v %s", reqURL, respStatus, err, errBody)
+	return ""
+}
+
+type garageAPIErrorDetails struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Path    string `json:"path"`
+	Region  string `json:"region"`
+}
+
+func parseGarageAPIError(err error) *garageAPIErrorDetails {
+	if err == nil {
+		return nil
+	}
+	body := apiErrorBody(err)
+	if body == "" {
+		return nil
+	}
+	var details garageAPIErrorDetails
+	if uerr := json.Unmarshal([]byte(body), &details); uerr != nil {
+		return nil
+	}
+	return &details
 }

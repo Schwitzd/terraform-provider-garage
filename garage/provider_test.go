@@ -171,7 +171,9 @@ func TestDetectGarageVersionFallbackToV1(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/GetClusterStatus":
-			http.Error(w, "boom", http.StatusInternalServerError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Unknown API endpoint: GET /v2/GetClusterStatus"}`)
 		case "/v1/status":
 			gotV1Auth = r.Header.Get("Authorization")
 			w.Header().Set("Content-Type", "application/json")
@@ -203,9 +205,132 @@ func TestDetectGarageVersionFallbackToV1(t *testing.T) {
 	}
 }
 
+func TestDetectGarageVersionMissingV2UnauthorizedV1(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/GetClusterStatus":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Unknown API endpoint: GET /v2/GetClusterStatus"}`)
+		case "/v1/status":
+			http.Error(w, "forbidden", http.StatusForbidden)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newAPIClientForServer(server)
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	if err == nil {
+		t.Fatalf("expected error when v2 missing and v1 unauthorized")
+	}
+	if ver != nil || src != "" {
+		t.Fatalf("expected nil version and empty source, got %v %q", ver, src)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "requires Garage 2.0.0 or newer") || !strings.Contains(msg, "Unknown API endpoint") {
+		t.Fatalf("unexpected error message %q", msg)
+	}
+}
+
+func TestDetectGarageVersionAuthFailureStopsFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/GetClusterStatus" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"code":"AccessDenied","message":"Forbidden: Invalid bearer token"}`)
+	}))
+	defer server.Close()
+
+	client := newAPIClientForServer(server)
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	if err == nil {
+		t.Fatalf("expected error on auth failure")
+	}
+	if ver != nil || src != "" {
+		t.Fatalf("expected nil version and empty source, got %v %q", ver, src)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "403") || !strings.Contains(msg, "AccessDenied") {
+		t.Fatalf("unexpected error message %q", msg)
+	}
+}
+
+func TestDetectGarageVersionBadRequestStopsFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/GetClusterStatus" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Missing parameters"}`)
+	}))
+	defer server.Close()
+
+	client := newAPIClientForServer(server)
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	if err == nil {
+		t.Fatalf("expected error on v2 bad request")
+	}
+	if ver != nil || src != "" {
+		t.Fatalf("expected nil version and empty source, got %v %q", ver, src)
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Fatalf("unexpected error message %q", err)
+	}
+}
+
+func TestDetectGarageVersionServerErrorStopsFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/GetClusterStatus" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newAPIClientForServer(server)
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	if err == nil {
+		t.Fatalf("expected error on server failure")
+	}
+	if ver != nil || src != "" {
+		t.Fatalf("expected nil version and empty source, got %v %q", ver, src)
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Fatalf("unexpected error message %q", err)
+	}
+}
+
 func TestDetectGarageVersionBothFail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "nope", http.StatusInternalServerError)
+		switch r.URL.Path {
+		case "/v2/GetClusterStatus":
+			http.NotFound(w, r)
+		case "/v1/status":
+			http.Error(w, "nope", http.StatusInternalServerError)
+		default:
+			http.Error(w, "unexpected", http.StatusBadRequest)
+		}
 	}))
 	defer server.Close()
 
