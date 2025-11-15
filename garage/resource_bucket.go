@@ -153,7 +153,16 @@ func flattenBucketInfo(bucket *garage.GetBucketInfoResponse) map[string]interfac
 	if bucket.WebsiteConfig.IsSet() && bucket.WebsiteConfig.Get() != nil {
 		wc := bucket.WebsiteConfig.Get()
 		b["website_config_index_document"] = wc.IndexDocument
-		b["website_config_error_document"] = wc.ErrorDocument
+
+		if wc.ErrorDocument.IsSet() {
+			if v := wc.ErrorDocument.Get(); v != nil {
+				b["website_config_error_document"] = *v
+			} else {
+				b["website_config_error_document"] = nil
+			}
+		} else {
+			b["website_config_error_document"] = nil
+		}
 	}
 
 	// Quotas

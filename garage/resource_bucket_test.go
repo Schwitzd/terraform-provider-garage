@@ -120,12 +120,9 @@ func TestFlattenBucketInfo(t *testing.T) {
 	if v, ok := flat["website_config_error_document"]; !ok {
 		t.Fatalf("expected error document entry")
 	} else {
-		ns, ok := v.(garageapi.NullableString)
-		if !ok {
-			t.Fatalf("expected NullableString, got %#v", v)
-		}
-		if !ns.IsSet() || ns.Get() == nil || *ns.Get() != "error.html" {
-			t.Fatalf("unexpected nullable string content %#v", ns)
+		val, ok := v.(string)
+		if !ok || val != "error.html" {
+			t.Fatalf("unexpected error document %#v", v)
 		}
 	}
 	if aliases, ok := flat["global_aliases"]; !ok {
