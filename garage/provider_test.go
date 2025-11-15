@@ -173,7 +173,7 @@ func TestDetectGarageVersionFallbackToV1(t *testing.T) {
 		case "/v2/GetClusterStatus":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Unknown API endpoint: GET /v2/GetClusterStatus"}`)
+			fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Unknown API endpoint: GET /v2/GetClusterStatus","path":"/v2/GetClusterStatus"}`)
 		case "/v1/status":
 			gotV1Auth = r.Header.Get("Authorization")
 			w.Header().Set("Content-Type", "application/json")
@@ -211,7 +211,7 @@ func TestDetectGarageVersionMissingV2UnauthorizedV1(t *testing.T) {
 		case "/v2/GetClusterStatus":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Unknown API endpoint: GET /v2/GetClusterStatus"}`)
+			fmt.Fprint(w, `{"code":"InvalidRequest","message":"Bad request: Unknown API endpoint: GET /v2/GetClusterStatus","path":"/v2/GetClusterStatus"}`)
 		case "/v1/status":
 			http.Error(w, "forbidden", http.StatusForbidden)
 		default:
@@ -346,7 +346,8 @@ func TestDetectGarageVersionBothFail(t *testing.T) {
 	if ver != nil || src != "" {
 		t.Fatalf("expected nil version and empty source, got %v %q", ver, src)
 	}
-	if !strings.Contains(err.Error(), "failed to determine garage version") {
+	if !strings.Contains(err.Error(), "this provider requires Garage 2.0.0 or newer") ||
+		!strings.Contains(err.Error(), "404 Not Found") {
 		t.Fatalf("unexpected error %v", err)
 	}
 }
