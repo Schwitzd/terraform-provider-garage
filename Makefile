@@ -16,6 +16,7 @@ ACCEPTANCE_TEST_FLAGS ?= -count=1 -timeout=120m
 
 all: docs build
 
+build: SHELL := /bin/bash
 build: clean
 	@echo "Building release version $(VERSION)"
 	CGO_ENABLED=0 go build -trimpath -o bin/${BINARY}
@@ -46,7 +47,7 @@ testacc:
 
 docs:
 	@echo "Generating Terraform provider docs with tfplugindocs"
-	@~/go/bin/tfplugindocs
+	@cd tools && go generate && cd ..
 
 clean:
 	rm -rf bin $(BINARY)

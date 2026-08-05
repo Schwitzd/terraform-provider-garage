@@ -20,8 +20,8 @@ Manages a single alias for a bucket, either:
 - LOCAL  alias: access_key_id + local_alias + bucket_id
 
 APIs used:
-  - Add:    BucketAliasAPI.AddBucketAlias(ctx).AddBucketAliasRequest(NewAddBucketAliasRequest(...)).Execute()
-  - Remove: BucketAliasAPI.RemoveBucketAlias(ctx).RemoveBucketAliasRequest(NewRemoveBucketAliasRequest(...)).Execute()
+  - Add:    BucketAliasAPI.AddBucketAlias(ctx).BucketAliasEnum(...).Execute()
+  - Remove: BucketAliasAPI.RemoveBucketAlias(ctx).BucketAliasEnum(...).Execute()
   - Read:   BucketAPI.GetBucketInfo(ctx).Id(bucket_id).Execute()
 
 ID format:
@@ -115,15 +115,13 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 
 	case global != "":
 		// GLOBAL alias
-		req := p.client.BucketAliasAPI.
+		aliasEnum := garage.BucketAliasEnumOneOfAsBucketAliasEnum(
+			garage.NewBucketAliasEnumOneOf(bucketID, global),
+		)
+		_, httpResp, err := p.client.BucketAliasAPI.
 			AddBucketAlias(p.withToken(ctx)).
-			AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
-				global, // globalAlias
-				"",     // accessKeyId (unused)
-				"",     // localAlias  (unused)
-				bucketID,
-			))
-		_, httpResp, err := req.Execute()
+			BucketAliasEnum(aliasEnum).
+			Execute()
 		if err != nil {
 			return createDiagnostics(err, httpResp)
 		}
@@ -132,15 +130,13 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 
 	case local != "" && keyID != "":
 		// LOCAL alias
-		req := p.client.BucketAliasAPI.
+		aliasEnum := garage.BucketAliasEnumOneOf1AsBucketAliasEnum(
+			garage.NewBucketAliasEnumOneOf1(keyID, bucketID, local),
+		)
+		_, httpResp, err := p.client.BucketAliasAPI.
 			AddBucketAlias(p.withToken(ctx)).
-			AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
-				"",    // globalAlias (unused)
-				keyID, // accessKeyId
-				local, // localAlias
-				bucketID,
-			))
-		_, httpResp, err := req.Execute()
+			BucketAliasEnum(aliasEnum).
+			Execute()
 		if err != nil {
 			return createDiagnostics(err, httpResp)
 		}
@@ -242,14 +238,12 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 
 	switch kind {
 	case "global":
+		aliasEnum := garage.BucketAliasEnumOneOfAsBucketAliasEnum(
+			garage.NewBucketAliasEnumOneOf(bucketID, alias),
+		)
 		_, httpResp, err := p.client.BucketAliasAPI.
 			RemoveBucketAlias(p.withToken(ctx)).
-			RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
-				alias, // globalAlias
-				"",    // accessKeyId (unused)
-				"",    // localAlias (unused)
-				bucketID,
-			)).
+			BucketAliasEnum(aliasEnum).
 			Execute()
 		if err != nil {
 			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
@@ -264,14 +258,12 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 			d.SetId("")
 			return nil
 		}
+		aliasEnum := garage.BucketAliasEnumOneOf1AsBucketAliasEnum(
+			garage.NewBucketAliasEnumOneOf1(keyID, bucketID, alias),
+		)
 		_, httpResp, err := p.client.BucketAliasAPI.
 			RemoveBucketAlias(p.withToken(ctx)).
-			RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
-				"",    // globalAlias (unused)
-				keyID, // accessKeyId
-				alias, // localAlias
-				bucketID,
-			)).
+			BucketAliasEnum(aliasEnum).
 			Execute()
 		if err != nil {
 			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {

@@ -11,6 +11,7 @@ import (
 	"time"
 	"unsafe"
 
+	garage "git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang"
 	garageapi "git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
@@ -72,22 +73,174 @@ func TestBuildWebsiteAccessEnabled(t *testing.T) {
 func TestBuildQuotasValidation(t *testing.T) {
 	res := resourceBucket()
 
-	// Both values set
-	data := schema.TestResourceDataRaw(t, res.Schema, map[string]interface{}{})
-	if err := data.Set("quotas", []interface{}{
-		map[string]interface{}{
-			"max_size":    10,
-			"max_objects": 5,
+	tests := []struct {
+		name        string
+		raw         map[string]interface{}
+		wantSize    *int64
+		wantObjects *int64
+		wantNil     bool
+		wantDiags   bool
+	}{
+		{
+			name: "both max values set",
+			raw: map[string]interface{}{
+				"quotas": []interface{}{map[string]interface{}{
+					"max_size":    10,
+					"max_objects": 5,
+				}},
+			},
+			wantSize:    int64Ptr(10),
+			wantObjects: int64Ptr(5),
 		},
-	}); err != nil {
-		t.Fatalf("unexpected error setting quotas: %v", err)
+		{
+			name: "only one max value 0",
+			raw: map[string]interface{}{
+				"quotas": []interface{}{map[string]interface{}{
+					"max_size":    10,
+					"max_objects": 0,
+				}},
+			},
+			wantSize:    int64Ptr(10),
+			wantObjects: int64Ptr(0),
+		},
+		{
+			name: "only one max value set to nil",
+			raw: map[string]interface{}{
+				"quotas": []interface{}{map[string]interface{}{
+					"max_size":    20,
+					"max_objects": nil,
+				}},
+			},
+			wantSize:    int64Ptr(20),
+			wantObjects: int64Ptr(0),
+		},
+		{
+			name: "one max value set to -1 for unlimited",
+			raw: map[string]interface{}{
+				"quotas": []interface{}{map[string]interface{}{
+					"max_size":    -1,
+					"max_objects": 5,
+				}},
+			},
+			wantSize:    nil,
+			wantObjects: int64Ptr(5),
+		},
+		{
+			name: "both max values explicitly -1",
+			raw: map[string]interface{}{
+				"quotas": []interface{}{map[string]interface{}{
+					"max_size":    -1,
+					"max_objects": -1,
+				}},
+			},
+			wantSize:    nil,
+			wantObjects: nil,
+		},
+		{
+			name: "both max values explicitly zero",
+			raw: map[string]interface{}{
+				"quotas": []interface{}{map[string]interface{}{
+					"max_size":    0,
+					"max_objects": 0,
+				}},
+			},
+			wantDiags: true,
+		},
+		{
+			name:    "quotas block absent",
+			raw:     map[string]interface{}{},
+			wantNil: true,
+		},
 	}
-	quotas, diags := buildQuotas(data)
-	if len(diags) != 0 {
-		t.Fatalf("unexpected diagnostics: %#v", diags)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := schema.TestResourceDataRaw(t, res.Schema, tt.raw)
+
+			quotas, diags := buildQuotas(data)
+
+			if tt.wantNil {
+				if quotas != nil {
+					t.Fatalf("expected nil quotas, got %#v", quotas)
+				}
+				return
+			}
+
+			if tt.wantDiags {
+				if len(diags) == 0 {
+					t.Fatalf("expected diagnostics, got none")
+				}
+				if quotas != nil {
+					t.Fatalf("expected nil quotas on error, got %#v", quotas)
+				}
+				return
+			}
+
+			if len(diags) != 0 {
+				t.Fatalf("unexpected diagnostics: %#v", diags)
+			}
+			if quotas == nil {
+				t.Fatalf("expected quotas, got nil")
+			}
+
+			assertNullableInt64(t, "max_size", quotas.MaxSize, tt.wantSize)
+			assertNullableInt64(t, "max_objects", quotas.MaxObjects, tt.wantObjects)
+		})
 	}
-	if quotas == nil || !quotas.MaxSize.IsSet() || !quotas.MaxObjects.IsSet() {
-		t.Fatalf("expected quotas to be populated, got %#v", quotas)
+}
+
+func TestFlattenBucketInfoIncludesZeroQuotas(t *testing.T) {
+	now := time.Now().UTC()
+	quotas := garageapi.ApiBucketQuotas{}
+	quotas.SetMaxSize(0)
+	quotas.SetMaxObjects(0)
+
+	bucket := garageapi.NewGetBucketInfoResponse(
+		0,
+		now,
+		[]string{},
+		"bucket-id",
+		[]garageapi.GetBucketInfoKey{},
+		0,
+		quotas,
+		0, 0, 0, 0,
+		false,
+	)
+
+	flat := flattenBucketInfo(bucket)
+	quotasList, ok := flat["quotas"].([]interface{})
+	if !ok || len(quotasList) != 1 {
+		t.Fatalf("expected quotas flattened into list, got %#v", flat["quotas"])
+	}
+	q := quotasList[0].(map[string]interface{})
+	if q["max_size"].(int) != 0 || q["max_objects"].(int) != 0 {
+		t.Fatalf("expected zero quotas to be preserved, got %#v", q)
+	}
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
+}
+
+func assertNullableInt64(t *testing.T, name string, got garage.NullableInt64, want *int64) {
+	t.Helper()
+
+	if !got.IsSet() {
+		t.Fatalf("%s: expected field to be set", name)
+	}
+
+	if want == nil {
+		if got.Get() != nil {
+			t.Fatalf("%s: expected explicit nil, got %v", name, *got.Get())
+		}
+		return
+	}
+
+	if got.Get() == nil {
+		t.Fatalf("%s: expected %d, got nil", name, *want)
+	}
+	if *got.Get() != *want {
+		t.Fatalf("%s: expected %d, got %d", name, *want, *got.Get())
 	}
 }
 
@@ -95,7 +248,7 @@ func TestFlattenBucketInfo(t *testing.T) {
 	now := time.Now().UTC()
 	quotas := garageapi.ApiBucketQuotas{}
 	quotas.SetMaxSize(42)
-	quotas.SetMaxObjects(7)
+	quotas.SetMaxObjectsNil()
 
 	bucket := garageapi.NewGetBucketInfoResponse(
 		1234,
@@ -138,7 +291,7 @@ func TestFlattenBucketInfo(t *testing.T) {
 		t.Fatalf("expected quotas flattened into list, got %#v", flat["quotas"])
 	}
 	q := quotasList[0].(map[string]interface{})
-	if q["max_size"].(int) != 42 || q["max_objects"].(int) != 7 {
+	if q["max_size"].(int) != 42 || q["max_objects"].(int) != -1 {
 		t.Fatalf("unexpected quotas contents %#v", q)
 	}
 }

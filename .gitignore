@@ -74,6 +74,7 @@ docker/volumes/
 terraform-provider-garage
 bin
 test
+tmp
 
 # Crash log files
 crash.log

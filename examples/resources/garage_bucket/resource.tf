@@ -8,3 +8,12 @@ resource "garage_bucket" "global_example" {
     max_objects = 1000
   }
 }
+
+resource "garage_bucket" "global_example2" {
+  global_alias = "my-global-bucket2"
+
+  quotas {
+    max_size    = 1073741824 # 1 GiB
+    max_objects = -1 # unlimited objects
+  }
+}

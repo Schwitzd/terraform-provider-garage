@@ -1,4 +1,4 @@
-FROM golang:1.18
+FROM golang:1.25
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV LC_ALL C.UTF-8

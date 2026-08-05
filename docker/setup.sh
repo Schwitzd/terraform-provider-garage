@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-docker-compose -p garage up -d
+docker compose -p garage up -d
 sleep 2
 
 GARAGE_ZONE="foo"

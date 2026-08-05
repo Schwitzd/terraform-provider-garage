@@ -97,18 +97,18 @@ func schemaBucket() map[string]*schema.Schema {
 			Type:        schema.TypeList,
 			Optional:    true,
 			MaxItems:    1,
-			Description: "Optional storage quotas for this bucket. If omitted or set to zero, the bucket has no limits.",
+			Description: "Optional storage quotas for this bucket. If omitted, the bucket has no limits.",
 			Elem: &schema.Resource{
 				Schema: map[string]*schema.Schema{
 					"max_size": {
 						Type:        schema.TypeInt,
 						Optional:    true,
-						Description: "Maximum total size in bytes allowed for this bucket. `0` means unlimited.",
+						Description: "Maximum total size in bytes allowed for this bucket. `-1` is mapped to `nil/null` (unlimited), while `0` means no storage is allowed.",
 					},
 					"max_objects": {
 						Type:        schema.TypeInt,
 						Optional:    true,
-						Description: "Maximum number of objects allowed in this bucket. `0` means unlimited.",
+						Description: "Maximum number of objects allowed in this bucket. `-1` is mapped to `nil/null` (unlimited), while `0` means no objects are allowed.",
 					},
 				},
 			},
@@ -168,25 +168,20 @@ func flattenBucketInfo(bucket *garage.GetBucketInfoResponse) map[string]interfac
 	// Quotas
 	if bucket.Quotas.MaxSize.IsSet() || bucket.Quotas.MaxObjects.IsSet() {
 		q := map[string]interface{}{}
-		hasAny := false
 
-		if bucket.Quotas.MaxSize.IsSet() {
-			if v := bucket.Quotas.MaxSize.Get(); v != nil && *v > 0 {
-				q["max_size"] = int(*v)
-				hasAny = true
-			}
+		if v := bucket.Quotas.MaxSize.Get(); v != nil {
+			q["max_size"] = int(*v)
+		} else {
+			q["max_size"] = -1
 		}
 
-		if bucket.Quotas.MaxObjects.IsSet() {
-			if v := bucket.Quotas.MaxObjects.Get(); v != nil && *v > 0 {
-				q["max_objects"] = int(*v)
-				hasAny = true
-			}
+		if v := bucket.Quotas.MaxObjects.Get(); v != nil {
+			q["max_objects"] = int(*v)
+		} else {
+			q["max_objects"] = -1
 		}
 
-		if hasAny {
-			b["quotas"] = []interface{}{q}
-		}
+		b["quotas"] = []interface{}{q}
 	}
 
 	return b
@@ -291,27 +286,38 @@ func buildQuotas(d *schema.ResourceData) (*garage.ApiBucketQuotas, diag.Diagnost
 		return nil, nil
 	}
 
-	qm := raw[0].(map[string]interface{})
-	sizeRaw, sizeSet := qm["max_size"]
-	objsRaw, objsSet := qm["max_objects"]
+	sizeRaw, sizeSet := d.GetOk("quotas.0.max_size")
+	objsRaw, objsSet := d.GetOk("quotas.0.max_objects")
 
+	// This handles both the case, that only one of the two is set or that both are set to 0
+	// which would not be required as one setting being 0 is enough to block any storage in the bucket.
 	if !sizeSet && !objsSet {
-		return nil, nil
-	}
-	if sizeSet && objsSet {
-		maxSize := int64(sizeRaw.(int))
-		maxObjects := int64(objsRaw.(int))
-		return &garage.ApiBucketQuotas{
-			MaxSize:    *garage.NewNullableInt64(&maxSize),
-			MaxObjects: *garage.NewNullableInt64(&maxObjects),
-		}, nil
+		return nil, diag.Diagnostics{{
+			Severity: diag.Error,
+			Summary:  "invalid quotas configuration",
+			Detail:   "both max_size and max_objects must be set together, or neither",
+		}}
 	}
 
-	return nil, diag.Diagnostics{{
-		Severity: diag.Error,
-		Summary:  "invalid quotas configuration",
-		Detail:   "both max_size and max_objects must be set together, or neither",
-	}}
+	var quotas garage.ApiBucketQuotas
+	// We explicitly set -1 to `nil` which gets translated to JSON `null`, to allow for setting only a single quota property, while keeping the other one unlimited.
+	// This is the only way to allow both the setting of unlimited storage and totally blocked storage by either setting max_size or max_objects.
+
+	maxSize := int64(sizeRaw.(int))
+	if maxSize == -1 {
+		quotas.SetMaxSizeNil()
+	} else {
+		quotas.MaxSize = *garage.NewNullableInt64(&maxSize)
+	}
+
+	maxObjects := int64(objsRaw.(int))
+	if maxObjects == -1 {
+		quotas.SetMaxObjectsNil()
+	} else {
+		quotas.MaxObjects = *garage.NewNullableInt64(&maxObjects)
+	}
+
+	return &quotas, nil
 }
 
 func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
@@ -325,11 +331,12 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 
 		// add new first
 		if newAlias != "" {
+			aliasEnum := garage.BucketAliasEnumOneOfAsBucketAliasEnum(
+				garage.NewBucketAliasEnumOneOf(d.Id(), newAlias),
+			)
 			_, httpResp, err := p.client.BucketAliasAPI.
 				AddBucketAlias(p.withToken(ctx)).
-				AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
-					newAlias, "", "", d.Id(),
-				)).
+				BucketAliasEnum(aliasEnum).
 				Execute()
 			if err != nil {
 				return createDiagnostics(err, httpResp)
@@ -338,11 +345,12 @@ func resourceBucketUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 
 		// then remove old (if different)
 		if oldAlias != "" && oldAlias != newAlias {
+			aliasEnum := garage.BucketAliasEnumOneOfAsBucketAliasEnum(
+				garage.NewBucketAliasEnumOneOf(d.Id(), oldAlias),
+			)
 			_, httpResp, err := p.client.BucketAliasAPI.
 				RemoveBucketAlias(p.withToken(ctx)).
-				RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
-					oldAlias, "", "", d.Id(),
-				)).
+				BucketAliasEnum(aliasEnum).
 				Execute()
 			if err != nil {
 				return createDiagnostics(err, httpResp)
