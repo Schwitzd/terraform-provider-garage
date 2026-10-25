@@ -9,18 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	garageapi "git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang"
 	"github.com/Masterminds/semver/v3"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
-
-func newAPIClientForServer(server *httptest.Server) *garageapi.APIClient {
-	cfg := garageapi.NewConfiguration()
-	cfg.Servers = garageapi.ServerConfigurations{{URL: server.URL}}
-	cfg.HTTPClient = server.Client()
-	return garageapi.NewAPIClient(cfg)
-}
 
 func TestProviderDefinition(t *testing.T) {
 	p := Provider()
@@ -122,12 +114,11 @@ func TestDetectGarageVersionV2Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,12 +140,11 @@ func TestDetectGarageVersionV2Invalid(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err == nil {
 		t.Fatalf("expected error for invalid v2 payload")
 	}
@@ -184,13 +174,12 @@ func TestDetectGarageVersionFallbackToV1(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 	token := "token-xyz"
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, token)
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, token)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,12 +209,11 @@ func TestDetectGarageVersionMissingV2UnauthorizedV1(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err == nil {
 		t.Fatalf("expected error when v2 missing and v1 unauthorized")
 	}
@@ -249,12 +237,11 @@ func TestDetectGarageVersionAuthFailureStopsFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err == nil {
 		t.Fatalf("expected error on auth failure")
 	}
@@ -278,12 +265,11 @@ func TestDetectGarageVersionBadRequestStopsFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err == nil {
 		t.Fatalf("expected error on v2 bad request")
 	}
@@ -304,12 +290,11 @@ func TestDetectGarageVersionServerErrorStopsFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err == nil {
 		t.Fatalf("expected error on server failure")
 	}
@@ -334,12 +319,11 @@ func TestDetectGarageVersionBothFail(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newAPIClientForServer(server)
 	httpClient := server.Client()
 	host := strings.TrimPrefix(server.URL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 
-	ver, src, err := detectGarageVersion(context.Background(), client, httpClient, "http", host, "token")
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
 	if err == nil {
 		t.Fatalf("expected error when both version probes fail")
 	}
@@ -394,29 +378,27 @@ func TestEnforceV2(t *testing.T) {
 	}
 }
 
-func TestMinClusterSemverFromV2(t *testing.T) {
-	resp := &garageapi.GetClusterStatusResponse{
-		Nodes: []garageapi.NodeResp{
-			{
-				Id:            "node-1",
-				GarageVersion: garageapi.NullableString{},
-			},
-		},
-	}
-	verStr := "2.2.0"
-	resp.Nodes[0].GarageVersion.Set(&verStr)
+func TestMinClusterSemverFromProbe(t *testing.T) {
+	body := []byte(`{"layoutVersion":1,"nodes":[{"id":"node-1","garageVersion":"v2.2.0"}]}`)
 
-	v, err := minClusterSemverFromV2(resp)
+	v, err := minClusterSemverFromProbe(body)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if v.Original() != verStr {
+	if v.Original() != "2.2.0" {
 		t.Fatalf("unexpected version %q", v.Original())
 	}
 
-	resp.Nodes[0].GarageVersion = garageapi.NullableString{}
-	if _, err := minClusterSemverFromV2(resp); err == nil {
+	if _, err := minClusterSemverFromProbe([]byte(`{"layoutVersion":1,"nodes":[{"id":"node-1"}]}`)); err == nil {
 		t.Fatalf("expected error when node lacks version")
+	}
+
+	if _, err := minClusterSemverFromProbe([]byte(`{"layoutVersion":1,"nodes":[]}`)); err == nil {
+		t.Fatalf("expected error when payload has no nodes")
+	}
+
+	if _, err := minClusterSemverFromProbe([]byte(`not-json`)); err == nil {
+		t.Fatalf("expected error for malformed payload")
 	}
 }
 
@@ -466,5 +448,91 @@ func TestEnrichV2HTTP(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "/v2/GetClusterStatus") || !strings.Contains(msg, "boom") {
 		t.Fatalf("unexpected error message %q", msg)
+	}
+}
+
+/* The fixtures in this section mirror real Garage admin API responses. Garage
+v2.5.0 added per-node additive properties (e.g. resyncQueueLen); the provider
+keeps working with future minor releases that add more of them. */
+
+const v25ClusterStatusBody = `{"layoutVersion":1,"nodes":[
+	{"id":"6a063ab65f1648bc","garageVersion":"v2.5.0","addr":"[::]:3901","hostname":"garage-01","isUp":true,"lastSeenSecsAgo":null,"role":null,"draining":false,"dataPartition":{"available":19129200640,"total":20957446144},"metadataPartition":{"available":19129200640,"total":20957446144},"resyncQueueLen":0},
+	{"id":"bb1207f9aa8a3f68","garageVersion":"v2.5.0","addr":"[::]:3901","hostname":"garage-02","isUp":true,"lastSeenSecsAgo":null,"role":null,"draining":false,"dataPartition":{"available":19129200640,"total":20957446144},"metadataPartition":{"available":19129200640,"total":20957446144},"resyncQueueLen":3}]}`
+
+func TestDetectGarageVersionV25AdditiveResyncQueueLen(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/GetClusterStatus" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, v25ClusterStatusBody)
+	}))
+	defer server.Close()
+
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
+	if err != nil {
+		t.Fatalf("expected detection to tolerate Garage v2.5.0 additive fields, got %v", err)
+	}
+	if src != "v2" {
+		t.Fatalf("expected source v2, got %q", src)
+	}
+	if ver.Original() != "2.5.0" {
+		t.Fatalf("expected minimum version 2.5.0, got %s", ver.Original())
+	}
+}
+
+func TestDetectGarageVersionV2ToleratesUnknownFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/GetClusterStatus" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"layoutVersion":1,"nodes":[{"draining":false,"id":"node-1","isUp":true,"garageVersion":"v2.6.0","someFutureField":{"unknown":true}}],"futureClusterKey":1}`)
+	}))
+	defer server.Close()
+
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
+	if err != nil {
+		t.Fatalf("expected detection to tolerate unknown additive fields, got %v", err)
+	}
+	if src != "v2" {
+		t.Fatalf("expected source v2, got %q", src)
+	}
+	if ver.Original() != "2.6.0" {
+		t.Fatalf("expected minimum version 2.6.0, got %s", ver.Original())
+	}
+}
+
+func TestDetectGarageVersionV2EmptyNodes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/GetClusterStatus" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"layoutVersion":1,"nodes":[]}`)
+	}))
+	defer server.Close()
+
+	httpClient := server.Client()
+	host := strings.TrimPrefix(server.URL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+
+	ver, src, err := detectGarageVersion(context.Background(), httpClient, "http", host, "token")
+	if err == nil {
+		t.Fatalf("expected error for v2 payload without nodes")
+	}
+	if ver != nil || src != "" {
+		t.Fatalf("expected nil version and empty source, got %v %q", ver, src)
+	}
+	if !strings.Contains(err.Error(), "v2 payload invalid") {
+		t.Fatalf("expected v2 payload invalid error, got %v", err)
 	}
 }

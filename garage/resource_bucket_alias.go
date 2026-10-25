@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
+	"slices"
 	"strings"
 
 	garage "git.deuxfleurs.fr/garage-sdk/garage-admin-sdk-golang"
@@ -117,12 +117,8 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 		// GLOBAL alias
 		req := p.client.BucketAliasAPI.
 			AddBucketAlias(p.withToken(ctx)).
-			AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
-				global, // globalAlias
-				"",     // accessKeyId (unused)
-				"",     // localAlias  (unused)
-				bucketID,
-			))
+			BucketAliasEnum(garage.BucketAliasEnumOneOfAsBucketAliasEnum(
+				garage.NewBucketAliasEnumOneOf(bucketID, global)))
 		_, httpResp, err := req.Execute()
 		if err != nil {
 			return createDiagnostics(err, httpResp)
@@ -134,12 +130,8 @@ func resourceBucketAliasCreate(ctx context.Context, d *schema.ResourceData, m in
 		// LOCAL alias
 		req := p.client.BucketAliasAPI.
 			AddBucketAlias(p.withToken(ctx)).
-			AddBucketAliasRequest(*garage.NewAddBucketAliasRequest(
-				"",    // globalAlias (unused)
-				keyID, // accessKeyId
-				local, // localAlias
-				bucketID,
-			))
+			BucketAliasEnum(garage.BucketAliasEnumOneOf1AsBucketAliasEnum(
+				garage.NewBucketAliasEnumOneOf1(keyID, bucketID, local)))
 		_, httpResp, err := req.Execute()
 		if err != nil {
 			return createDiagnostics(err, httpResp)
@@ -244,12 +236,8 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 	case "global":
 		_, httpResp, err := p.client.BucketAliasAPI.
 			RemoveBucketAlias(p.withToken(ctx)).
-			RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
-				alias, // globalAlias
-				"",    // accessKeyId (unused)
-				"",    // localAlias (unused)
-				bucketID,
-			)).
+			BucketAliasEnum(garage.BucketAliasEnumOneOfAsBucketAliasEnum(
+				garage.NewBucketAliasEnumOneOf(bucketID, alias))).
 			Execute()
 		if err != nil {
 			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
@@ -266,12 +254,8 @@ func resourceBucketAliasDelete(ctx context.Context, d *schema.ResourceData, m in
 		}
 		_, httpResp, err := p.client.BucketAliasAPI.
 			RemoveBucketAlias(p.withToken(ctx)).
-			RemoveBucketAliasRequest(*garage.NewRemoveBucketAliasRequest(
-				"",    // globalAlias (unused)
-				keyID, // accessKeyId
-				alias, // localAlias
-				bucketID,
-			)).
+			BucketAliasEnum(garage.BucketAliasEnumOneOf1AsBucketAliasEnum(
+				garage.NewBucketAliasEnumOneOf1(keyID, bucketID, alias))).
 			Execute()
 		if err != nil {
 			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
@@ -323,105 +307,14 @@ func validateBucketAliasInputs(global, local, keyID string) error {
 	return nil
 }
 
-// keyMatchesAccessKeyID returns true if the GetBucketInfoKey has AccessKeyId (or similar) == want.
-func keyMatchesAccessKeyID(key interface{}, want string) bool {
-	rv := reflect.ValueOf(key)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return false
-	}
-
-	for _, name := range []string{"AccessKeyId", "AccessKeyID", "Id", "ID"} {
-		f := rv.FieldByName(name)
-		if f.IsValid() && f.CanInterface() && f.Kind() == reflect.String {
-			if f.Interface().(string) == want {
-				return true
-			}
-		}
-	}
-	// Getter-based fallbacks (in case your SDK generates methods only)
-	if m := rv.MethodByName("GetAccessKeyId"); m.IsValid() && m.Type().NumIn() == 0 && m.Type().NumOut() == 1 {
-		out := m.Call(nil)
-		if len(out) == 1 && out[0].Kind() == reflect.String && out[0].String() == want {
-			return true
-		}
-	}
-	if m := rv.MethodByName("GetId"); m.IsValid() && m.Type().NumIn() == 0 && m.Type().NumOut() == 1 {
-		out := m.Call(nil)
-		if len(out) == 1 && out[0].Kind() == reflect.String && out[0].String() == want {
-			return true
-		}
-	}
-	return false
+// keyMatchesAccessKeyID reports whether the GetBucketInfoKey belongs to the
+// given access key ID.
+func keyMatchesAccessKeyID(k garage.GetBucketInfoKey, want string) bool {
+	return k.AccessKeyId == want
 }
 
-// keyHasLocalAlias returns true if the GetBucketInfoKey contains the given local alias.
-// Supports common shapes: []string, map[string]bool/map[string]string, or []struct{ Alias string }.
-func keyHasLocalAlias(key interface{}, alias string) bool {
-	rv := reflect.ValueOf(key)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return false
-	}
-
-	// Try likely field names holding local aliases
-	fields := []string{
-		"LocalAliases", "Aliases", "LocalAlias", "LocalAliasesList", "LocalAliasesMap",
-	}
-
-	for _, name := range fields {
-		f := rv.FieldByName(name)
-		if !f.IsValid() {
-			// Try Get<name>() getter
-			getter := rv.MethodByName("Get" + name)
-			if getter.IsValid() && getter.Type().NumIn() == 0 && getter.Type().NumOut() == 1 {
-				out := getter.Call(nil)
-				if len(out) == 1 {
-					f = out[0]
-				}
-			}
-		}
-		if !f.IsValid() {
-			continue
-		}
-
-		switch f.Kind() {
-		case reflect.Slice:
-			for i := 0; i < f.Len(); i++ {
-				elem := f.Index(i)
-				switch elem.Kind() {
-				case reflect.String:
-					if elem.String() == alias {
-						return true
-					}
-				case reflect.Struct:
-					for _, an := range []string{"Alias", "Name"} {
-						af := elem.FieldByName(an)
-						if af.IsValid() && af.Kind() == reflect.String && af.String() == alias {
-							return true
-						}
-					}
-					// Try getters on element
-					if m := elem.Addr().MethodByName("GetAlias"); m.IsValid() && m.Type().NumIn() == 0 && m.Type().NumOut() == 1 {
-						if out := m.Call(nil); len(out) == 1 && out[0].Kind() == reflect.String && out[0].String() == alias {
-							return true
-						}
-					}
-				}
-			}
-
-		case reflect.Map:
-			for _, mk := range f.MapKeys() {
-				if mk.Kind() == reflect.String && mk.String() == alias {
-					return true
-				}
-			}
-		}
-	}
-
-	return false
+// keyHasLocalAlias reports whether the GetBucketInfoKey carries the given
+// local alias. The SDK exposes them under BucketLocalAliases ([]string).
+func keyHasLocalAlias(k garage.GetBucketInfoKey, alias string) bool {
+	return slices.Contains(k.GetBucketLocalAliases(), alias)
 }

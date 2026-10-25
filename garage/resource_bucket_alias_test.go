@@ -106,17 +106,6 @@ func TestResourceBucketAliasCustomizeDiffErrors(t *testing.T) {
 	}
 }
 
-type testKeyStruct struct {
-	AccessKeyId  string
-	LocalAliases []string
-}
-
-type getterKey struct {
-	accessKey string
-}
-
-func (g getterKey) GetAccessKeyId() string { return g.accessKey }
-
 func TestValidateBucketAliasInputs(t *testing.T) {
 	if err := validateBucketAliasInputs("", "", ""); err == nil {
 		t.Fatalf("expected error when neither alias provided")
@@ -133,29 +122,28 @@ func TestValidateBucketAliasInputs(t *testing.T) {
 }
 
 func TestKeyMatchesAccessKeyID(t *testing.T) {
-	k := testKeyStruct{AccessKeyId: "key-1"}
+	k := garageapi.GetBucketInfoKey{AccessKeyId: "key-1"}
 	if !keyMatchesAccessKeyID(k, "key-1") {
 		t.Fatalf("expected keyMatchesAccessKeyID to match")
 	}
 	if keyMatchesAccessKeyID(k, "other") {
 		t.Fatalf("expected keyMatchesAccessKeyID to fail for mismatched id")
 	}
-
-	if !keyMatchesAccessKeyID(getterKey{accessKey: "key-2"}, "key-2") {
-		t.Fatalf("expected getter-based key to match")
-	}
 }
 
 func TestKeyHasLocalAlias(t *testing.T) {
-	k := testKeyStruct{
-		AccessKeyId:  "key-1",
-		LocalAliases: []string{"alias-a", "alias-b"},
+	k := garageapi.GetBucketInfoKey{
+		AccessKeyId:        "key-1",
+		BucketLocalAliases: []string{"alias-a", "alias-b"},
 	}
 	if !keyHasLocalAlias(k, "alias-b") {
-		t.Fatalf("expected alias lookup to succeed")
+		t.Fatalf("expected alias lookup to succeed in BucketLocalAliases")
 	}
 	if keyHasLocalAlias(k, "missing") {
 		t.Fatalf("expected alias lookup to fail")
+	}
+	if keyHasLocalAlias(garageapi.GetBucketInfoKey{}, "missing") {
+		t.Fatalf("expected alias lookup to fail for empty key")
 	}
 }
 
@@ -319,9 +307,17 @@ func TestResourceBucketAliasReadLocal(t *testing.T) {
 	if len(diags) != 0 {
 		t.Fatalf("unexpected diagnostics %#v", diags)
 	}
-	// Local alias detection depends on API fields; ensure state persists even if alias not found
 	if d.Id() == "" {
-		// alias not found; nothing more to assert
+		t.Fatalf("expected local alias found via BucketLocalAliases; id must persist")
+	}
+	if d.Get("kind").(string) != "local" {
+		t.Fatalf("expected kind local, got %q", d.Get("kind").(string))
+	}
+	if d.Get("local_alias").(string) != "alias" {
+		t.Fatalf("expected local_alias preserved, got %q", d.Get("local_alias").(string))
+	}
+	if d.Get("access_key_id").(string) != "key" {
+		t.Fatalf("expected access_key_id preserved, got %q", d.Get("access_key_id").(string))
 	}
 }
 

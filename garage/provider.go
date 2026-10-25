@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -109,7 +110,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	ctxTok := context.WithValue(ctx, garage.ContextAccessToken, token)
 
 	// detect and enforce minimum supported version
-	ver, src, derr := detectGarageVersion(ctxTok, client, httpClient, scheme, host, token)
+	ver, src, derr := detectGarageVersion(ctxTok, httpClient, scheme, host, token)
 	if derr != nil {
 		return nil, diag.FromErr(derr)
 	}
@@ -162,24 +163,30 @@ func sanitizeHost(raw string) (host string, scheme string, err error) {
 	return raw, "", nil
 }
 
-// detectGarageVersion tries v2 (SDK) first, then v1 (/v1/status via raw HTTP)
+// detectGarageVersion probes the v2 admin API first (permissive JSON decode, so
+// additive properties from newer Garage releases do not break detection), then
+// falls back to v1 (/v1/status via raw HTTP)
 // returns detected version and source ("v2" | "v1")
 func detectGarageVersion(
 	ctx context.Context,
-	client *garage.APIClient,
 	httpClient *http.Client,
 	scheme, host, token string,
 ) (*semver.Version, string, error) {
-	// v2 via SDK
-	status, resp, err := client.ClusterAPI.GetClusterStatus(ctx).Execute()
-	if err == nil && status != nil && len(status.Nodes) > 0 {
-		v, serr := minClusterSemverFromV2(status)
+	// v2 via raw HTTP; decode leniently to tolerate unknown additive fields
+	body, resp, err := probeV2Status(ctx, httpClient, scheme, host, token)
+	v2Err := enrichV2HTTP(fmt.Errorf("%s", truncateProbeBody(body, err)), resp)
+	switch {
+	case err != nil:
+		// transport failure or unreadable body handled below (v2Err carries it)
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		v, serr := minClusterSemverFromProbe(body)
 		if serr == nil {
 			return v, "v2", nil
 		}
 		return nil, "", fmt.Errorf("v2 payload invalid: %w", serr)
+	default:
+		// non-2xx status: v2Err already carries the enriched HTTP error
 	}
-	v2Err := enrichV2HTTP(err, resp)
 	fallbackAllowed := false
 	var fallbackReason string
 	if resp != nil {
@@ -188,7 +195,7 @@ func detectGarageVersion(
 			// Auth failures indicate bad credentials; do not mask them with a v1 fallback.
 			return nil, "", v2Err
 		default:
-			if ok, reason := shouldFallbackToV1(resp, err); ok {
+			if ok, reason := shouldFallbackToV1(resp.StatusCode, body); ok {
 				fallbackAllowed = true
 				fallbackReason = reason
 			} else {
@@ -230,16 +237,26 @@ func enforceV2(v *semver.Version) error {
 	return nil
 }
 
-// minClusterSemverFromV2 parses the cluster status and returns the minimum node version as semver
-func minClusterSemverFromV2(status *garage.GetClusterStatusResponse) (*semver.Version, error) {
+// minClusterSemverFromProbe parses a GetClusterStatus body (decoded leniently:
+// unknown properties are ignored) and returns the minimum node version as
+// semver, enforcing >= 2.0.0 per node
+func minClusterSemverFromProbe(data []byte) (*semver.Version, error) {
+	var probe clusterStatusProbe
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("malformed JSON: %w", err)
+	}
+	if len(probe.Nodes) == 0 {
+		return nil, fmt.Errorf("response has no nodes")
+	}
+
 	c, _ := semver.NewConstraint(">= 2.0.0")
 	var minSeen *semver.Version
 
-	for _, n := range status.Nodes {
-		if !n.GarageVersion.IsSet() || n.GarageVersion.Get() == nil {
+	for _, n := range probe.Nodes {
+		if n.GarageVersion == nil {
 			return nil, fmt.Errorf("node %s reports no garageVersion", n.Id)
 		}
-		norm, err := normalizeVersion(*n.GarageVersion.Get())
+		norm, err := normalizeVersion(*n.GarageVersion)
 		if err != nil {
 			return nil, fmt.Errorf("node %s has invalid version: %w", n.Id, err)
 		}
@@ -252,6 +269,60 @@ func minClusterSemverFromV2(status *garage.GetClusterStatusResponse) (*semver.Ve
 		}
 	}
 	return minSeen, nil
+}
+
+// clusterStatusProbe only carries the properties version detection needs; every
+// other (current or future) property of GetClusterStatus is ignored by the
+// lenient decode, so additive schema changes cannot break the probe
+type clusterStatusNodeProbe struct {
+	Id            string  `json:"id"`
+	GarageVersion *string `json:"garageVersion"`
+}
+
+type clusterStatusProbe struct {
+	Nodes []clusterStatusNodeProbe `json:"nodes"`
+}
+
+// probeV2Status calls /v2/GetClusterStatus via raw HTTP instead of the typed
+// SDK call, so unknown additive fields from newer Garage releases cannot make
+// the response undecodable. Returns the body bytes and the response for status
+// handling by the caller.
+func probeV2Status(ctx context.Context, httpClient *http.Client, scheme, host, token string) ([]byte, *http.Response, error) {
+	urlStr := fmt.Sprintf("%s://%s/v2/GetClusterStatus", scheme, host)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return body, res, err
+	}
+	return body, res, nil
+}
+
+// truncateProbeBody renders the response body for error text; without a body it
+// reports the probe error itself
+func truncateProbeBody(body []byte, probeErr error) string {
+	if len(body) > 0 {
+		s := strings.TrimSpace(string(body))
+		if len(s) > 600 {
+			s = s[:600] + "…"
+		}
+		return s
+	}
+	if probeErr != nil {
+		return probeErr.Error()
+	}
+	return ""
 }
 
 // probeV1Version calls /v1/status and extracts the GarageVersion
@@ -339,16 +410,12 @@ func enrichV2HTTP(err error, resp *http.Response) error {
 	}
 }
 
-func shouldFallbackToV1(resp *http.Response, err error) (bool, string) {
-	if resp == nil {
-		return false, ""
-	}
-
-	switch resp.StatusCode {
+func shouldFallbackToV1(statusCode int, body []byte) (bool, string) {
+	switch statusCode {
 	case http.StatusNotFound:
 		return true, "garage API v2 endpoint returned 404 Not Found"
 	case http.StatusBadRequest:
-		if details := parseGarageAPIError(err); details != nil {
+		if details := parseGarageAPIError(body); details != nil {
 			message := strings.ToLower(details.Message)
 			if strings.Contains(message, "unknown api endpoint") && strings.HasSuffix(details.Path, "/v2/GetClusterStatus") {
 				return true, fmt.Sprintf("garage API v2 endpoint reports %q on %s", details.Message, details.Path)
@@ -383,16 +450,12 @@ type garageAPIErrorDetails struct {
 	Region  string `json:"region"`
 }
 
-func parseGarageAPIError(err error) *garageAPIErrorDetails {
-	if err == nil {
-		return nil
-	}
-	body := apiErrorBody(err)
-	if body == "" {
+func parseGarageAPIError(body []byte) *garageAPIErrorDetails {
+	if len(body) == 0 {
 		return nil
 	}
 	var details garageAPIErrorDetails
-	if uerr := json.Unmarshal([]byte(body), &details); uerr != nil {
+	if uerr := json.Unmarshal(body, &details); uerr != nil {
 		return nil
 	}
 	return &details
